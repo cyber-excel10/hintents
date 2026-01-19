@@ -3,6 +3,7 @@ module github.com/dotandev/hintents
 go 1.25.5
 
 require (
+	github.com/fatih/color v1.18.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stellar/go v0.0.0-20251210100531-aab2ea4aca88
 )
@@ -15,6 +16,8 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/klauspost/compress v1.17.6 // indirect
 	github.com/manucorporat/sse v0.0.0-20160126180136-ee05b128a739 // indirect
+	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/segmentio/go-loggly v0.5.1-0.20171222203950-eb91657e62b2 // indirect

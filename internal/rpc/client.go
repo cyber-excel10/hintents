@@ -3,19 +3,73 @@ package rpc
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/stellar/go/clients/horizonclient"
+)
+
+// Network types for Stellar
+type Network string
+
+const (
+	Testnet   Network = "testnet"
+	Mainnet   Network = "mainnet"
+	Futurenet Network = "futurenet"
+)
+
+// Horizon URLs for each network
+const (
+	TestnetHorizonURL   = "https://horizon-testnet.stellar.org/"
+	MainnetHorizonURL   = "https://horizon.stellar.org/"
+	FuturenetHorizonURL = "https://horizon-futurenet.stellar.org/"
 )
 
 // Client handles interactions with the Stellar Network
 type Client struct {
 	Horizon *horizonclient.Client
+	Network Network
 }
 
-// NewClient creates a new RPC client (defaults to Public Network for now)
-func NewClient() *Client {
+// NewClient creates a new RPC client with the specified network
+// If network is empty, defaults to Mainnet
+func NewClient(net Network) *Client {
+	if net == "" {
+		net = Mainnet
+	}
+
+	var horizonClient *horizonclient.Client
+
+	switch net {
+	case Testnet:
+		horizonClient = horizonclient.DefaultTestNetClient
+	case Futurenet:
+		// Create a futurenet client (not available as default)
+		horizonClient = &horizonclient.Client{
+			HorizonURL: FuturenetHorizonURL,
+			HTTP:       http.DefaultClient,
+		}
+	case Mainnet:
+		fallthrough
+	default:
+		horizonClient = horizonclient.DefaultPublicNetClient
+	}
+
 	return &Client{
-		Horizon: horizonclient.DefaultPublicNetClient,
+		Horizon: horizonClient,
+		Network: net,
+	}
+}
+
+// NewClientWithURL creates a new RPC client with a custom Horizon URL
+func NewClientWithURL(url string, net Network) *Client {
+	horizonClient := &horizonclient.Client{
+		HorizonURL: url,
+		HTTP:       http.DefaultClient,
+	}
+
+	return &Client{
+		Horizon: horizonClient,
+		Network: net,
 	}
 }
 

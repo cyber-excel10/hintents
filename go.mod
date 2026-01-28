@@ -6,6 +6,7 @@ require (
 	github.com/spf13/cobra v1.7.0
 	github.com/stellar/go v0.0.0-20251210100531-aab2ea4aca88
 	github.com/stretchr/testify v1.10.0
+	modernc.org/sqlite v1.28.0
 )
 
 require (

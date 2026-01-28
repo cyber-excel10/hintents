@@ -37,7 +37,7 @@ func TestDecodeEnvelope(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := DecodeEnvelope(tt.input)
-			
+
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("expected error but got none")
@@ -62,7 +62,7 @@ func FuzzDecodeEnvelope(f *testing.F) {
 	f.Add("invalid")
 	f.Add("YWJjZA==") // "abcd" in base64
 	f.Add("AAAA")     // Short valid base64
-	
+
 	f.Fuzz(func(t *testing.T, data string) {
 		// The decoder should never panic, regardless of input
 		defer func() {
@@ -70,10 +70,10 @@ func FuzzDecodeEnvelope(f *testing.F) {
 				t.Errorf("DecodeEnvelope panicked with input %q: %v", data, r)
 			}
 		}()
-		
+
 		// Call the decoder - it should return an error for invalid input, not panic
 		_, err := DecodeEnvelope(data)
-		
+
 		// We expect most random inputs to fail, but they should fail gracefully
 		if err != nil {
 			// Verify the error is descriptive and not just a panic
@@ -90,21 +90,21 @@ func FuzzDecodeEnvelopeBytes(f *testing.F) {
 	f.Add([]byte{})
 	f.Add([]byte{0x00, 0x01, 0x02, 0x03})
 	f.Add([]byte{0xFF, 0xFE, 0xFD})
-	
+
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Convert bytes to base64 string
 		b64Data := base64.StdEncoding.EncodeToString(data)
-		
+
 		// The decoder should never panic
 		defer func() {
 			if r := recover(); r != nil {
 				t.Errorf("DecodeEnvelope panicked with byte input (len=%d): %v", len(data), r)
 			}
 		}()
-		
+
 		// Call the decoder
 		_, err := DecodeEnvelope(b64Data)
-		
+
 		// Most random byte sequences won't be valid XDR, but should fail gracefully
 		if err != nil && err.Error() == "" {
 			t.Errorf("DecodeEnvelope returned empty error message for byte input (len=%d)", len(data))

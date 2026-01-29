@@ -1,6 +1,9 @@
 use serde::Deserialize;
 use std::fs;
 
+// Copyright 2025 Erst Users
+// SPDX-License-Identifier: Apache-2.0
+
 use super::theme::Theme;
 use crate::config::paths::theme_path;
 

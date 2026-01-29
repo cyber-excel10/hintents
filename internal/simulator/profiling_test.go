@@ -1,8 +1,8 @@
 package simulator
 
 import (
-	"testing"
 	"github.com/stretchr/testify/assert"
+	"testing"
 )
 
 func TestProfilingSchema(t *testing.T) {

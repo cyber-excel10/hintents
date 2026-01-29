@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::io::{self, Read};
 
 mod source_mapper;
-use source_mapper::{SourceMapper, SourceLocation};
+use source_mapper::{SourceLocation, SourceMapper};
 
 #[derive(Debug, Deserialize)]
 struct SimulationRequest {
@@ -184,10 +184,12 @@ fn main() {
                         // 1. Execute the contract function
                         // 2. Catch any WASM traps or errors
                         // 3. Map the failure point to source code
-                        
+
                         // For demonstration, simulate a failure at WASM offset 0x1234
                         let simulated_failure_offset = 0x1234u64;
-                        if let Some(location) = mapper.map_wasm_offset_to_source(simulated_failure_offset) {
+                        if let Some(location) =
+                            mapper.map_wasm_offset_to_source(simulated_failure_offset)
+                        {
                             let error_msg = format!(
                                 "Contract execution failed. Failed at line {} in {}",
                                 location.line, location.file

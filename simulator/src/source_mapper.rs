@@ -55,7 +55,7 @@ mod tests {
     fn test_source_mapper_without_symbols() {
         let wasm_bytes = vec![0x00, 0x61, 0x73, 0x6d]; // Basic WASM header
         let mapper = SourceMapper::new(wasm_bytes);
-        
+
         assert!(!mapper.has_debug_symbols());
         assert!(mapper.map_wasm_offset_to_source(0x1234).is_none());
     }
@@ -63,9 +63,9 @@ mod tests {
     #[test]
     fn test_source_mapper_with_mock_symbols() {
         // This would be a WASM file with debug symbols in a real test
-        let wasm_bytes = vec![0x00, 0x61, 0x73, 0x6d]; 
+        let wasm_bytes = vec![0x00, 0x61, 0x73, 0x6d];
         let mapper = SourceMapper::new(wasm_bytes);
-        
+
         // For now, this will return false since we don't have real debug symbols
         // In a real implementation with proper WASM + debug symbols, this would be true
         assert!(!mapper.has_debug_symbols());
@@ -78,7 +78,7 @@ mod tests {
             line: 42,
             column: Some(10),
         };
-        
+
         let json = serde_json::to_string(&location).unwrap();
         assert!(json.contains("test.rs"));
         assert!(json.contains("42"));

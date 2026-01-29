@@ -1,29 +1,21 @@
-
+// Copyright 2025 Erst Users
+// SPDX-License-Identifier: Apache-2.0
 
 mod cli;
 mod config;
 mod gas_optimizer;
 mod ipc;
 mod theme;
-// Copyright (c) 2026 dotandev
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use soroban_env_host::xdr::ReadXdr;
 use std::collections::HashMap;
 use std::io::{self, Read};
+use std::panic;
+
+use crate::gas_optimizer::{BudgetMetrics, GasOptimizationAdvisor, OptimizationReport};
+use soroban_env_host::events::Events;
 
 // -----------------------------------------------------------------------------
 // Data Structures
@@ -32,9 +24,12 @@ use std::io::{self, Read};
 #[derive(Debug, Deserialize)]
 struct SimulationRequest {
     envelope_xdr: String,
+    #[allow(dead_code)]
     result_meta_xdr: String,
     // Key XDR -> Entry XDR
     ledger_entries: Option<HashMap<String, String>>,
+    enable_optimization_advisor: bool,
+    profile: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -47,6 +42,26 @@ struct DiagnosticEvent {
 }
 
 #[derive(Debug, Serialize)]
+pub struct CategorizedEvent {
+    pub category: String,
+    pub details: String,
+}
+
+#[derive(Debug, Serialize)]
+struct BudgetUsage {
+    cpu_instructions: u64,
+    memory_bytes: u64,
+    operations_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct StructuredError {
+    error_type: String,
+    message: String,
+    details: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 struct SimulationResponse {
     status: String,
     error: Option<String>,
@@ -54,6 +69,24 @@ struct SimulationResponse {
     diagnostic_events: Vec<DiagnosticEvent>,
     categorized_events: Vec<CategorizedEvent>,
     logs: Vec<String>,
+    flamegraph: Option<String>,
+    optimization_report: Option<OptimizationReport>,
+    budget_usage: Option<BudgetUsage>,
+}
+
+fn execute_operations(
+    _host: &soroban_env_host::Host,
+    _ops: &[soroban_env_host::xdr::Operation],
+) -> Result<Vec<String>, soroban_env_host::HostError> {
+    // Placeholder for actual execution logic using the host
+    // In a real scenario, this would apply operations.
+    // For now we just return empty logs or mock behavior if needed
+    Ok(vec![])
+}
+
+fn categorize_events(_events: &Events) -> Vec<CategorizedEvent> {
+    // Placeholder function since it was missing in original file
+    vec![]
 }
 
 // -----------------------------------------------------------------------------
@@ -96,9 +129,7 @@ fn main() {
                 budget_usage: None,
             };
             println!("{}", serde_json::to_string(&res).unwrap());
-           
-          
-            return send_error(format!("Invalid JSON: {}", e));
+            return;
         }
     };
 
@@ -106,7 +137,7 @@ fn main() {
     let envelope = match base64::engine::general_purpose::STANDARD.decode(&request.envelope_xdr) {
         Ok(bytes) => match soroban_env_host::xdr::TransactionEnvelope::from_xdr(
             bytes,
-            &soroban_env_host::xdr::Limits::none(),
+            soroban_env_host::xdr::Limits::none(),
         ) {
             Ok(env) => env,
             Err(e) => {
@@ -129,7 +160,10 @@ fn main() {
     if let Some(entries) = &request.ledger_entries {
         for (key_xdr, entry_xdr) in entries {
             let _key = match base64::engine::general_purpose::STANDARD.decode(key_xdr) {
-                Ok(b) => match soroban_env_host::xdr::LedgerKey::from_xdr(b, &soroban_env_host::xdr::Limits::none()) {
+                Ok(b) => match soroban_env_host::xdr::LedgerKey::from_xdr(
+                    b,
+                    soroban_env_host::xdr::Limits::none(),
+                ) {
                     Ok(k) => k,
                     Err(e) => return send_error(format!("Failed to parse LedgerKey XDR: {}", e)),
                 },
@@ -137,7 +171,10 @@ fn main() {
             };
 
             let _entry = match base64::engine::general_purpose::STANDARD.decode(entry_xdr) {
-                Ok(b) => match soroban_env_host::xdr::LedgerEntry::from_xdr(b, &soroban_env_host::xdr::Limits::none()) {
+                Ok(b) => match soroban_env_host::xdr::LedgerEntry::from_xdr(
+                    b,
+                    soroban_env_host::xdr::Limits::none(),
+                ) {
                     Ok(e) => e,
                     Err(e) => return send_error(format!("Failed to parse LedgerEntry XDR: {}", e)),
                 },
@@ -146,8 +183,6 @@ fn main() {
             loaded_entries_count += 1;
         }
     }
-
-    let mut invocation_logs = vec![];
 
     // Extract Operations and Simulate
     let operations = match &envelope {
@@ -213,8 +248,7 @@ fn main() {
                     let diag_events: Vec<DiagnosticEvent> = evs
                         .0
                         .iter()
-                        .enumerate()
-                        .map(|(_idx, event)| {
+                        .map(|event| {
                             let event_type = match &event.event.type_ {
                                 soroban_env_host::xdr::ContractEventType::Contract => {
                                     "contract".to_string()
@@ -227,11 +261,11 @@ fn main() {
                                 }
                             };
 
-                            let contract_id = if let Some(contract_id) = &event.event.contract_id {
-                                Some(format!("{:?}", contract_id))
-                            } else {
-                                None
-                            };
+                            let contract_id = event
+                                .event
+                                .contract_id
+                                .as_ref()
+                                .map(|contract_id| format!("{:?}", contract_id));
 
                             let (topics, data) = match &event.event.body {
                                 soroban_env_host::xdr::ContractEventBody::V0(v0) => {
@@ -309,57 +343,7 @@ fn main() {
                 optimization_report: None,
                 budget_usage: None,
             };
-    for op in operations.iter() {
-        if let soroban_env_host::xdr::OperationBody::InvokeHostFunction(host_fn_op) = &op.body {
-            match &host_fn_op.host_function {
-                soroban_env_host::xdr::HostFunction::InvokeContract(invoke_args) => {
-                    invocation_logs.push(format!("Invoking Contract: {:?}", invoke_args.contract_address));
-                    // In a real implementation, host.invoke_function would be called here.
-                    // If it returned an Err, we would pass it to decode_error.
-                }
-                _ => invocation_logs.push("Skipping non-InvokeContract Host Function".to_string()),
-            }
-        }
-    }
-
-    let events = match host.get_events() {
-        Ok(evs) => evs.0.iter().map(|e| format!("{:?}", e)).collect::<Vec<String>>(),
-        Err(e) => vec![format!("Failed to retrieve events: {:?}", e)],
-    };
-
-    // Final Response
-    let response = SimulationResponse {
-        status: "success".to_string(),
-        error: None,
-        events,
-        logs: {
-            let mut logs = vec![
-                format!("Host Initialized. Loaded {} Ledger Entries", loaded_entries_count),
-            ];
-            logs.extend(invocation_logs);
-            logs
-        },
-    };
-
-    println!("{}", serde_json::to_string(&response).unwrap());
-}
-
-// -----------------------------------------------------------------------------
-// Decoder Logic
-// -----------------------------------------------------------------------------
-
-/// Decodes generic errors and WASM traps into human-readable messages.
-/// 
-/// Differentiates between:
-/// 1. VM-initiated traps (WASM execution failures)
-/// 2. Host-initiated traps (Soroban environment logic failures)
-fn decode_error(err_msg: &str) -> String {
-    let err_lower = err_msg.to_lowercase();
-
-    // Check for VM-initiated traps (Pure WASM)
-    if err_lower.contains("wasm trap") || err_lower.contains("trapped") {
-        if err_lower.contains("unreachable") {
-            return "VM Trap: Unreachable Instruction (Panic or invalid code path)".to_string();
+            println!("{}", serde_json::to_string(&response).unwrap());
         }
         Err(panic_info) => {
             let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
@@ -382,6 +366,28 @@ fn decode_error(err_msg: &str) -> String {
                 budget_usage: None,
             };
             println!("{}", serde_json::to_string(&response).unwrap());
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Decoder Logic
+// -----------------------------------------------------------------------------
+
+/// Decodes generic errors and WASM traps into human-readable messages.
+///
+/// Differentiates between:
+/// 1. VM-initiated traps (WASM execution failures)
+/// 2. Host-initiated traps (Soroban environment logic failures)
+#[allow(dead_code)]
+fn decode_error(err_msg: &str) -> String {
+    let err_lower = err_msg.to_lowercase();
+
+    // Check for VM-initiated traps (Pure WASM)
+    if err_lower.contains("wasm trap") || err_lower.contains("trapped") {
+        if err_lower.contains("unreachable") {
+            return "VM Trap: Unreachable Instruction (Panic or invalid code path)".to_string();
+        }
         if err_lower.contains("out of bounds") || err_lower.contains("memory access") {
             return "VM Trap: Out of Bounds Access (Invalid memory read/write)".to_string();
         }
@@ -414,43 +420,16 @@ fn send_error(msg: String) {
         diagnostic_events: vec![],
         categorized_events: vec![],
         logs: vec![],
+        flamegraph: None,
+        optimization_report: None,
+        budget_usage: None,
     };
     println!("{}", serde_json::to_string(&res).unwrap());
 }
 
-// -----------------------------------------------------------------------------
-// Tests
-// -----------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_decode_vm_traps() {
-        // 1. Out of Bounds
-        let msg = decode_error("Error: Wasm Trap: out of bounds memory access");
-        assert!(msg.contains("VM Trap: Out of Bounds Access"));
-
-        // 2. Integer Overflow
-        let msg = decode_error("Error: trapped: integer overflow");
-        assert!(msg.contains("VM Trap: Integer Overflow"));
-
-        // 3. Stack Overflow
-        let msg = decode_error("Wasm Trap: call stack exhausted");
-        assert!(msg.contains("VM Trap: Stack Overflow"));
-
-        // 4. Unreachable
-        let msg = decode_error("Wasm Trap: unreachable");
-        assert!(msg.contains("VM Trap: Unreachable Instruction"));
-    }
-}
-
+#[allow(dead_code)]
 fn run_local_wasm_replay(wasm_path: &str, mock_args: &Option<Vec<String>>) {
-    use soroban_env_host::{
-        xdr::{ScAddress, ScSymbol, ScVal},
-        Host,
-    };
+    use soroban_env_host::Host;
     use std::fs;
 
     eprintln!("🔧 Local WASM Replay Mode");
@@ -459,13 +438,13 @@ fn run_local_wasm_replay(wasm_path: &str, mock_args: &Option<Vec<String>>) {
     eprintln!();
 
     // Read WASM file
-    let wasm_bytes = match fs::read(wasm_path) {
+    match fs::read(wasm_path) {
         Ok(bytes) => {
             eprintln!("✓ Loaded WASM file: {} bytes", bytes.len());
-            bytes
         }
         Err(e) => {
-            return send_error(format!("Failed to read WASM file: {}", e));
+            send_error(format!("Failed to read WASM file: {}", e));
+            return;
         }
     };
 
@@ -521,6 +500,33 @@ fn run_local_wasm_replay(wasm_path: &str, mock_args: &Option<Vec<String>>) {
 
     println!("{}", serde_json::to_string(&response).unwrap());
 }
+
+// -----------------------------------------------------------------------------
+// Tests
+// -----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_decode_vm_traps() {
+        // 1. Out of Bounds
+        let msg = decode_error("Error: Wasm Trap: out of bounds memory access");
+        assert!(msg.contains("VM Trap: Out of Bounds Access"));
+
+        // 2. Integer Overflow
+        let msg = decode_error("Error: trapped: integer overflow");
+        assert!(msg.contains("VM Trap: Integer Overflow"));
+
+        // 3. Stack Overflow
+        let msg = decode_error("Wasm Trap: call stack exhausted");
+        assert!(msg.contains("VM Trap: Stack Overflow"));
+
+        // 4. Unreachable
+        let msg = decode_error("Wasm Trap: unreachable");
+        assert!(msg.contains("VM Trap: Unreachable Instruction"));
+    }
 
     #[test]
     fn test_decode_host_traps() {

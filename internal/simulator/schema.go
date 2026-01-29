@@ -12,7 +12,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-
 // SimulationRequest is the JSON object passed to the Rust binary via Stdin
 type SimulationRequest struct {
 	// XDR encoded TransactionEnvelope
@@ -158,4 +157,3 @@ func (db *DB) SearchSessions(filters SearchFilters) ([]Session, error) {
 
 	return sessions, nil
 }
-

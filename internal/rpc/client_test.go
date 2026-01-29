@@ -19,6 +19,7 @@ import (
 
 type mockHorizonClient struct {
 	TransactionDetailFunc func(hash string) (hProtocol.Transaction, error)
+	LedgerDetailFunc      func(sequence uint32) (hProtocol.Ledger, error)
 }
 
 func (m *mockHorizonClient) TransactionDetail(hash string) (hProtocol.Transaction, error) {
@@ -43,6 +44,9 @@ func (m *mockHorizonClient) Ledgers(request horizonclient.LedgerRequest) (hProto
 	return hProtocol.LedgersPage{}, nil
 }
 func (m *mockHorizonClient) LedgerDetail(sequence uint32) (hProtocol.Ledger, error) {
+	if m.LedgerDetailFunc != nil {
+		return m.LedgerDetailFunc(sequence)
+	}
 	return hProtocol.Ledger{}, nil
 }
 func (m *mockHorizonClient) FeeStats() (hProtocol.FeeStats, error) { return hProtocol.FeeStats{}, nil }

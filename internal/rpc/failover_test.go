@@ -9,7 +9,7 @@ import (
 
 func TestClient_Rotation(t *testing.T) {
 	urls := []string{"http://fail1.com", "http://success2.com"}
-	client := NewClientWithURLs(urls, Testnet)
+	client := NewClientWithURLs(urls, Testnet, "")
 
 	assert.Equal(t, "http://fail1.com", client.HorizonURL)
 	assert.Equal(t, 0, client.currIndex)
@@ -34,7 +34,7 @@ func TestClient_GetTransaction_Failover_Logic(t *testing.T) {
 	// by checking that it returns an error after trying all URLs if they all fail.
 
 	urls := []string{"http://fail1.com", "http://fail2.com"}
-	client := NewClientWithURLs(urls, Testnet)
+	client := NewClientWithURLs(urls, Testnet, "")
 
 	ctx := context.Background()
 	_, err := client.GetTransaction(ctx, "abc")

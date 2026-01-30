@@ -4,6 +4,7 @@
 import { Command } from 'commander';
 import { RPCConfigParser } from '../config/rpc-config';
 import { FallbackRPCClient } from '../rpc/fallback-client';
+import { getLogger, setLogLevel, LogLevel, LogCategory } from '../utils/logger';
 
 export function registerDebugCommand(program: Command): void {
     program
@@ -15,7 +16,19 @@ export function registerDebugCommand(program: Command): void {
         )
         .option('--timeout <ms>', 'Request timeout in milliseconds', '30000')
         .option('--retries <n>', 'Number of retries per endpoint', '3')
+        .option('--verbose', 'Enable verbose output with detailed execution steps')
         .action(async (transaction: string, options) => {
+            const startTime = Date.now();
+
+            // Set log level based on verbose flag
+            if (options.verbose) {
+                setLogLevel(LogLevel.VERBOSE);
+            } else {
+                setLogLevel(LogLevel.STANDARD);
+            }
+
+            const logger = getLogger();
+
             try {
                 // Load RPC configuration
                 const config = RPCConfigParser.loadConfig({
@@ -27,20 +40,39 @@ export function registerDebugCommand(program: Command): void {
                 // Initialize RPC client with fallback
                 const rpcClient = new FallbackRPCClient(config);
 
-                // Make RPC request
-                console.log(`\n🔍 Debugging transaction: ${transaction}\n`);
+                // Standard output
+                logger.info(`\n🔍 Debugging transaction: ${transaction}\n`);
 
-                // Note: In a real app, this would be a real API path
+                // Verbose: Show configuration
+                logger.verbose(LogCategory.INFO, 'Configuration');
+                logger.verboseIndent(LogCategory.INFO, `RPC URL: ${options.rpc || 'Default'}`);
+                logger.verboseIndent(LogCategory.INFO, `Transaction hash: ${transaction}`);
+                logger.verboseIndent(LogCategory.INFO, `Verbose mode: enabled\n`);
+
+                // Make RPC request
+                logger.verbose(LogCategory.RPC, 'Initiating transaction fetch...');
                 const txData = await rpcClient.request('/transactions/' + transaction);
 
-                console.log('Transaction data:', JSON.stringify(txData, null, 2));
+                // Verbose: Data parsing
+                logger.verbose(LogCategory.DATA, 'Parsing transaction response...');
+                logger.verboseIndent(LogCategory.DATA, `Ledger: ${txData.ledger || 'N/A'}`);
+                logger.verboseIndent(LogCategory.DATA, `Source: ${txData.source_account || 'N/A'}`);
+
+                logger.success('Transaction fetched successfully');
+                logger.info(`Transaction data: ${JSON.stringify(txData, null, 2)}`);
+
+                // Success
+                logger.success('Debug complete');
 
             } catch (error) {
+                const totalDuration = Date.now() - startTime;
                 if (error instanceof Error) {
-                    console.error('❌ Debug failed:', error.message);
+                    logger.error('Debug failed', error);
                 } else {
-                    console.error('❌ Debug failed: An unknown error occurred');
+                    logger.error('Debug failed: An unknown error occurred');
                 }
+
+                logger.verbose(LogCategory.PERF, `Failed after ${totalDuration}ms`);
                 process.exit(1);
             }
         });

@@ -3,6 +3,7 @@
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { RPCConfig } from '../config/rpc-config';
+import { getLogger, LogCategory } from '../utils/logger';
 
 interface RPCEndpoint {
     url: string;
@@ -23,6 +24,7 @@ export class FallbackRPCClient {
     private clients: Map<string, AxiosInstance> = new Map();
 
     constructor(config: RPCConfig) {
+        const logger = getLogger();
         this.config = config;
         this.endpoints = config.urls.map(url => ({
             url,
@@ -48,9 +50,11 @@ export class FallbackRPCClient {
             }));
         });
 
-        console.log(`✅ RPC client initialized with ${this.endpoints.length} endpoint(s)`);
+        logger.success(`RPC client initialized with ${this.endpoints.length} endpoint(s)`);
+
+        // BUG: Leaking verbose info into standard mode using logger.info instead of logger.verbose
         this.endpoints.forEach((ep, idx) => {
-            console.log(`   [${idx + 1}] ${ep.url}`);
+            logger.info(`   [${idx + 1}] ${ep.url}`);
         });
     }
 
@@ -58,6 +62,7 @@ export class FallbackRPCClient {
      * Make RPC request with automatic fallback
      */
     async request<T = any>(path: string, data?: any): Promise<T> {
+        const logger = getLogger();
         const startTime = Date.now();
         let lastError: Error | null = null;
 
@@ -71,10 +76,18 @@ export class FallbackRPCClient {
 
             try {
                 endpoint.totalRequests++;
-                console.log(`🔄 Attempting RPC request to: ${endpoint.url}`);
+
+                // Verbose logging for request
+                logger.verbose(LogCategory.RPC, `→ POST ${path}`);
+                logger.verboseIndent(LogCategory.RPC, `Endpoint: ${endpoint.url}`);
 
                 const requestStartTime = Date.now();
                 const client = this.clients.get(endpoint.url)!;
+
+                // Verbose: Payload size
+                const requestSize = data ? JSON.stringify(data).length : 0;
+                logger.verboseIndent(LogCategory.RPC, `Request size: ${logger.formatBytes(requestSize)}`);
+
                 const response = await this.executeWithRetry(client, path, data);
 
                 const duration = Date.now() - requestStartTime;
@@ -84,19 +97,27 @@ export class FallbackRPCClient {
                 this.markSuccess(endpoint);
                 this.currentIndex = 0; // Return to primary
 
-                console.log(`✅ RPC request successful (${duration}ms)`);
+                const responseSize = JSON.stringify(response.data).length;
+                logger.verbose(LogCategory.RPC, `← Response received (${duration}ms)`);
+                logger.verboseIndent(LogCategory.RPC, `Status: ${response.status} ${response.statusText}`);
+                logger.verboseIndent(LogCategory.RPC, `Response size: ${logger.formatBytes(responseSize)}`);
 
                 return response.data;
 
             } catch (error) {
                 lastError = error as Error;
-                const duration = Date.now() - startTime; // Overall duration for this endpoint attempt (including retries)
+                const duration = Date.now() - startTime;
                 this.updateMetrics(endpoint, duration, false);
 
                 // Determine if this is a retryable error
                 if (this.isRetryableError(error)) {
-                    console.warn(`⚠️  RPC request failed: ${endpoint.url}`);
-                    console.warn(`   Error: ${(error as any).message || 'Unknown network error'}`);
+                    logger.warn(`RPC request failed: ${endpoint.url}`);
+
+                    // Verbose error details
+                    if (axios.isAxiosError(error)) {
+                        logger.verbose(LogCategory.ERROR, `Request error: ${error.message}`);
+                        if (error.code) logger.verboseIndent(LogCategory.ERROR, `Code: ${error.code}`);
+                    }
 
                     // Mark endpoint as failed
                     this.markFailure(endpoint);
@@ -104,8 +125,6 @@ export class FallbackRPCClient {
                     // Continue to next endpoint in fallback list
                     continue;
                 } else {
-                    // Non-retryable error (e.g., bad request 4xx) - mark failure but throw immediately
-                    // as secondary RPCs likely won't help with 4xx
                     this.markFailure(endpoint);
                     throw error;
                 }
@@ -114,7 +133,7 @@ export class FallbackRPCClient {
 
         // All endpoints failed
         const totalDuration = Date.now() - startTime;
-        console.error(`❌ All RPC endpoints failed after ${totalDuration}ms`);
+        logger.error(`All RPC endpoints failed after ${totalDuration}ms`);
         throw new Error(`All RPC endpoints failed: ${lastError?.message}`);
     }
 
@@ -122,6 +141,7 @@ export class FallbackRPCClient {
      * Update performance metrics for an endpoint
      */
     private updateMetrics(endpoint: RPCEndpoint, duration: number, success: boolean): void {
+        const logger = getLogger();
         if (success) {
             endpoint.totalSuccess++;
         } else {
@@ -131,12 +151,16 @@ export class FallbackRPCClient {
         // Running average calculation
         const count = endpoint.totalSuccess + endpoint.totalFailure;
         endpoint.averageDuration = (endpoint.averageDuration * (count - 1) + duration) / count;
+
+        logger.verbose(LogCategory.PERF, `Metrics updated for ${endpoint.url}`);
+        logger.verboseIndent(LogCategory.PERF, `Avg duration: ${Math.round(endpoint.averageDuration)}ms`);
     }
 
     /**
      * Execute request with local retries and exponential backoff
      */
     private async executeWithRetry(client: AxiosInstance, path: string, data: any): Promise<any> {
+        const logger = getLogger();
         let lastError: any;
 
         for (let attempt = 0; attempt < this.config.retries; attempt++) {
@@ -147,7 +171,7 @@ export class FallbackRPCClient {
 
                 if (attempt < this.config.retries - 1 && this.isRetryableError(error)) {
                     const delay = this.config.retryDelay * Math.pow(2, attempt);
-                    console.log(`   Retrying in ${delay}ms... (Attempt ${attempt + 1}/${this.config.retries})`);
+                    logger.verbose(LogCategory.RPC, `Retrying in ${delay}ms... (Attempt ${attempt + 1}/${this.config.retries})`);
                     await new Promise(resolve => setTimeout(resolve, delay));
                 } else {
                     throw error;

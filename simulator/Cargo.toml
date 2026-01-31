@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-soroban-env-host = { version = "20.3.0", features = ["testutils"] }
+soroban-env-host = "20.3.0"
 soroban-sdk = "20.3.0"
 hex = "0.4"
 serde = { version = "1.0.192", features = ["derive"] }

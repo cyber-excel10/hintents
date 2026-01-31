@@ -103,11 +103,12 @@ var (
 
 // Client handles interactions with the Stellar Network
 type Client struct {
-	Horizon    horizonclient.ClientInterface
-	Network    Network
-	SorobanURL string
-	token      string // stored for reference, not logged
-	Config     NetworkConfig
+	Horizon      horizonclient.ClientInterface
+	Network      Network
+	SorobanURL   string
+	token        string // stored for reference, not logged
+	Config       NetworkConfig
+	CacheEnabled bool
 }
 
 // TransactionResponse contains the raw XDR fields needed for simulation
@@ -168,11 +169,12 @@ func NewClient(net Network, token string) *Client {
 	}
 
 	return &Client{
-		Horizon:    horizonClient,
-		Network:    net,
-		SorobanURL: sorobanURL,
-		token:      token,
-		Config:     config,
+		Horizon:      horizonClient,
+		Network:      net,
+		SorobanURL:   sorobanURL,
+		token:        token,
+		Config:       config,
+		CacheEnabled: true,
 	}
 }
 
@@ -200,10 +202,11 @@ func NewClientWithURL(url string, net Network, token string) *Client {
 	}
 
 	return &Client{
-		Horizon:    horizonClient,
-		Network:    net,
-		SorobanURL: defaultClient.SorobanURL,
-		token:      token,
+		Horizon:      horizonClient,
+		Network:      net,
+		SorobanURL:   defaultClient.SorobanURL,
+		token:        token,
+		CacheEnabled: true,
 	}
 }
 
@@ -241,10 +244,11 @@ func NewCustomClient(config NetworkConfig) (*Client, error) {
 	}
 
 	return &Client{
-		Horizon:    horizonClient,
-		Network:    "custom",
-		SorobanURL: sorobanURL,
-		Config:     config,
+		Horizon:      horizonClient,
+		Network:      "custom",
+		SorobanURL:   sorobanURL,
+		Config:       config,
+		CacheEnabled: true,
 	}, nil
 }
 
@@ -471,13 +475,40 @@ func (c *Client) GetLedgerEntries(ctx context.Context, keys []string) (map[strin
 		return map[string]string{}, nil
 	}
 
-	logger.Logger.Debug("Fetching ledger entries", "count", len(keys), "url", c.SorobanURL)
+	entries := make(map[string]string)
+	var keysToFetch []string
+
+	// Check cache if enabled
+	if c.CacheEnabled {
+		for _, key := range keys {
+			val, hit, err := Get(key)
+			if err != nil {
+				logger.Logger.Warn("Cache read failed", "error", err)
+			}
+			if hit {
+				entries[key] = val
+				logger.Logger.Debug("Cache hit", "key", key)
+			} else {
+				keysToFetch = append(keysToFetch, key)
+			}
+		}
+	} else {
+		keysToFetch = keys
+	}
+
+	// If all keys found in cache, return immediately
+	if len(keysToFetch) == 0 {
+		logger.Logger.Info("All ledger entries found in cache", "count", len(keys))
+		return entries, nil
+	}
+
+	logger.Logger.Debug("Fetching ledger entries from RPC", "count", len(keysToFetch), "url", c.SorobanURL)
 
 	reqBody := GetLedgerEntriesRequest{
 		Jsonrpc: "2.0",
 		ID:      1,
 		Method:  "getLedgerEntries",
-		Params:  []interface{}{keys},
+		Params:  []interface{}{keysToFetch},
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)
@@ -511,12 +542,24 @@ func (c *Client) GetLedgerEntries(ctx context.Context, keys []string) (map[strin
 		return nil, fmt.Errorf("rpc error: %s (code %d)", rpcResp.Error.Message, rpcResp.Error.Code)
 	}
 
-	entries := make(map[string]string)
+	fetchedCount := 0
 	for _, entry := range rpcResp.Result.Entries {
 		entries[entry.Key] = entry.Xdr
+		fetchedCount++
+
+		// Cache the new entry
+		if c.CacheEnabled {
+			if err := Set(entry.Key, entry.Xdr); err != nil {
+				logger.Logger.Warn("Failed to cache entry", "key", entry.Key, "error", err)
+			}
+		}
 	}
 
-	logger.Logger.Info("Ledger entries fetched successfully", "found", len(entries), "requested", len(keys))
+	logger.Logger.Info("Ledger entries fetched",
+		"total_requested", len(keys),
+		"from_cache", len(keys)-len(keysToFetch),
+		"from_rpc", fetchedCount,
+	)
 
 	return entries, nil
 }

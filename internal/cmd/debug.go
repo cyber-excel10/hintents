@@ -50,6 +50,7 @@ var (
 	verbose            bool
 	wasmPath           string
 	args               []string
+	noCacheFlag        bool
 )
 
 // DebugCommand holds dependencies for the debug command
@@ -236,6 +237,11 @@ Local WASM Replay Mode:
 			}
 		}
 
+		if noCacheFlag {
+			client.CacheEnabled = false
+			fmt.Println("🚫 Cache disabled by --no-cache flag")
+		}
+
 		fmt.Printf("Fetching transaction: %s\n", txHash)
 		resp, err := client.GetTransaction(ctx, txHash)
 		if err != nil {
@@ -328,6 +334,9 @@ Local WASM Replay Mode:
 				go func() {
 					defer wg.Done()
 					compareClient := rpc.NewClient(rpc.Network(compareNetworkFlag), rpcTokenFlag)
+					if noCacheFlag {
+						compareClient.CacheEnabled = false
+					}
 					entries, err := compareClient.GetLedgerEntries(ctx, keys)
 					if err != nil {
 						compareErr = err
@@ -647,6 +656,7 @@ func init() {
 	debugCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 	debugCmd.Flags().StringVar(&wasmPath, "wasm", "", "Path to local WASM file for local replay (no network required)")
 	debugCmd.Flags().StringSliceVar(&args, "args", []string{}, "Mock arguments for local replay (JSON array of strings)")
+	debugCmd.Flags().BoolVar(&noCacheFlag, "no-cache", false, "Disable local ledger state caching")
 
 	rootCmd.AddCommand(debugCmd)
 }

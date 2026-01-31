@@ -1,0 +1,19 @@
+# ERST Configuration File
+# Copy this to ~/.erst.toml or .erst.toml in your project directory
+# Environment variables override these settings
+# CLI flags override everything
+
+# RPC URL for the Stellar network
+rpc_url = "https://soroban-testnet.stellar.org"
+
+# Network: public, testnet, futurenet, or standalone
+network = "testnet"
+
+# Path to the ERST simulator (optional)
+# simulator_path = "/path/to/simulator"
+
+# Log level: trace, debug, info, warn, error
+log_level = "info"
+
+# Cache directory for storing traces and snapshots
+# cache_path = "~/.erst/cache"

@@ -1,0 +1,331 @@
+// Copyright 2026 dotandev
+// SPDX-License-Identifier: Apache-2.0
+
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestNewConfig(t *testing.T) {
+	cfg := NewConfig("https://test.com", NetworkTestnet)
+
+	if cfg.RpcUrl != "https://test.com" {
+		t.Errorf("expected RpcUrl 'https://test.com', got %s", cfg.RpcUrl)
+	}
+
+	if cfg.Network != NetworkTestnet {
+		t.Errorf("expected Network testnet, got %s", cfg.Network)
+	}
+}
+
+func TestDefaultConfig(t *testing.T) {
+	cfg := DefaultConfig()
+
+	if cfg.RpcUrl == "" {
+		t.Error("expected non-empty RpcUrl")
+	}
+
+	if cfg.Network == "" {
+		t.Error("expected non-empty Network")
+	}
+
+	if cfg.CachePath == "" {
+		t.Error("expected non-empty CachePath")
+	}
+}
+
+func TestConfigValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     *Config
+		wantErr bool
+	}{
+		{
+			"valid public network",
+			&Config{RpcUrl: "https://test.com", Network: NetworkPublic},
+			false,
+		},
+		{
+			"valid testnet",
+			&Config{RpcUrl: "https://test.com", Network: NetworkTestnet},
+			false,
+		},
+		{
+			"valid futurenet",
+			&Config{RpcUrl: "https://test.com", Network: NetworkFuturenet},
+			false,
+		},
+		{
+			"valid standalone",
+			&Config{RpcUrl: "https://test.com", Network: NetworkStandalone},
+			false,
+		},
+		{
+			"empty RpcUrl",
+			&Config{RpcUrl: "", Network: NetworkTestnet},
+			true,
+		},
+		{
+			"invalid network",
+			&Config{RpcUrl: "https://test.com", Network: Network("invalid")},
+			true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("expected error=%v, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestNetworkURL(t *testing.T) {
+	tests := []struct {
+		network Network
+		want    string
+	}{
+		{NetworkPublic, "https://soroban.stellar.org"},
+		{NetworkTestnet, "https://soroban-testnet.stellar.org"},
+		{NetworkFuturenet, "https://soroban-futurenet.stellar.org"},
+		{NetworkStandalone, "http://localhost:8000"},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.network), func(t *testing.T) {
+			cfg := NewConfig("", tt.network)
+			got := cfg.NetworkURL()
+			if got != tt.want {
+				t.Errorf("expected %s, got %s", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestConfigBuilder(t *testing.T) {
+	cfg := NewConfig("https://test.com", NetworkTestnet).
+		WithSimulatorPath("/path/to/sim").
+		WithLogLevel("debug").
+		WithCachePath("/custom/cache")
+
+	if cfg.SimulatorPath != "/path/to/sim" {
+		t.Errorf("expected simulator path /path/to/sim, got %s", cfg.SimulatorPath)
+	}
+
+	if cfg.LogLevel != "debug" {
+		t.Errorf("expected log level debug, got %s", cfg.LogLevel)
+	}
+
+	if cfg.CachePath != "/custom/cache" {
+		t.Errorf("expected cache path /custom/cache, got %s", cfg.CachePath)
+	}
+}
+
+func TestConfigString(t *testing.T) {
+	cfg := NewConfig("https://test.com", NetworkTestnet)
+	str := cfg.String()
+
+	if !strings.Contains(str, "https://test.com") {
+		t.Error("expected RpcUrl in string representation")
+	}
+
+	if !strings.Contains(str, "testnet") {
+		t.Error("expected Network in string representation")
+	}
+}
+
+func TestParseTOML(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    *Config
+	}{
+		{
+			"simple TOML",
+			`rpc_url = "https://custom.com"
+network = "public"`,
+			&Config{RpcUrl: "https://custom.com", Network: NetworkPublic},
+		},
+		{
+			"TOML with comments",
+			`# Configuration
+rpc_url = "https://custom.com"
+# Network selection
+network = "testnet"`,
+			&Config{RpcUrl: "https://custom.com", Network: NetworkTestnet},
+		},
+		{
+			"TOML with all fields",
+			`rpc_url = "https://custom.com"
+network = "futurenet"
+simulator_path = "/path/to/sim"
+log_level = "debug"
+cache_path = "/custom/cache"`,
+			&Config{
+				RpcUrl:        "https://custom.com",
+				Network:       NetworkFuturenet,
+				SimulatorPath: "/path/to/sim",
+				LogLevel:      "debug",
+				CachePath:     "/custom/cache",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{}
+			err := cfg.parseTOML(tt.content)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if cfg.RpcUrl != tt.want.RpcUrl {
+				t.Errorf("RpcUrl: expected %s, got %s", tt.want.RpcUrl, cfg.RpcUrl)
+			}
+
+			if cfg.Network != tt.want.Network {
+				t.Errorf("Network: expected %s, got %s", tt.want.Network, cfg.Network)
+			}
+
+			if cfg.SimulatorPath != tt.want.SimulatorPath {
+				t.Errorf("SimulatorPath: expected %s, got %s", tt.want.SimulatorPath, cfg.SimulatorPath)
+			}
+
+			if cfg.LogLevel != tt.want.LogLevel {
+				t.Errorf("LogLevel: expected %s, got %s", tt.want.LogLevel, cfg.LogLevel)
+			}
+
+			if cfg.CachePath != tt.want.CachePath {
+				t.Errorf("CachePath: expected %s, got %s", tt.want.CachePath, cfg.CachePath)
+			}
+		})
+	}
+}
+
+func TestLoadFromEnvironment(t *testing.T) {
+	// Save original env vars
+	origRpc := os.Getenv("ERST_RPC_URL")
+	origNet := os.Getenv("ERST_NETWORK")
+	origLog := os.Getenv("ERST_LOG_LEVEL")
+
+	defer func() {
+		os.Setenv("ERST_RPC_URL", origRpc)
+		os.Setenv("ERST_NETWORK", origNet)
+		os.Setenv("ERST_LOG_LEVEL", origLog)
+	}()
+
+	os.Setenv("ERST_RPC_URL", "https://env.test.com")
+	os.Setenv("ERST_NETWORK", "public")
+	os.Setenv("ERST_LOG_LEVEL", "debug")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.RpcUrl != "https://env.test.com" {
+		t.Errorf("expected RpcUrl from env, got %s", cfg.RpcUrl)
+	}
+
+	if cfg.Network != NetworkPublic {
+		t.Errorf("expected Network from env, got %s", cfg.Network)
+	}
+
+	if cfg.LogLevel != "debug" {
+		t.Errorf("expected LogLevel from env, got %s", cfg.LogLevel)
+	}
+}
+
+func TestLoadTOMLFile(t *testing.T) {
+	tmpdir := t.TempDir()
+	configPath := filepath.Join(tmpdir, "test.toml")
+
+	content := `rpc_url = "https://file.test.com"
+network = "testnet"
+log_level = "trace"`
+
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	cfg := &Config{}
+	err := cfg.loadTOML(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.RpcUrl != "https://file.test.com" {
+		t.Errorf("expected RpcUrl from file, got %s", cfg.RpcUrl)
+	}
+
+	if cfg.Network != NetworkTestnet {
+		t.Errorf("expected Network from file, got %s", cfg.Network)
+	}
+}
+
+func TestValidNetworks(t *testing.T) {
+	networks := []Network{NetworkPublic, NetworkTestnet, NetworkFuturenet, NetworkStandalone}
+
+	for _, net := range networks {
+		cfg := NewConfig("https://test.com", net)
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("network %s should be valid: %v", net, err)
+		}
+	}
+}
+
+func TestConfigCopy(t *testing.T) {
+	original := NewConfig("https://test.com", NetworkTestnet).
+		WithLogLevel("debug").
+		WithCachePath("/cache")
+
+	copy := &Config{
+		RpcUrl:        original.RpcUrl,
+		Network:       original.Network,
+		LogLevel:      original.LogLevel,
+		CachePath:     original.CachePath,
+		SimulatorPath: original.SimulatorPath,
+	}
+
+	if original.RpcUrl != copy.RpcUrl {
+		t.Error("RpcUrl mismatch in copy")
+	}
+
+	if original.Network != copy.Network {
+		t.Error("Network mismatch in copy")
+	}
+
+	copy.LogLevel = "info"
+	if original.LogLevel == copy.LogLevel {
+		t.Error("copy should not affect original")
+	}
+}
+
+func BenchmarkConfigValidation(b *testing.B) {
+	cfg := NewConfig("https://test.com", NetworkTestnet)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = cfg.Validate()
+	}
+}
+
+func BenchmarkParseTOML(b *testing.B) {
+	content := `rpc_url = "https://test.com"
+network = "testnet"
+log_level = "info"
+simulator_path = "/path/to/sim"
+cache_path = "/cache"`
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		cfg := &Config{}
+		_ = cfg.parseTOML(content)
+	}
+}

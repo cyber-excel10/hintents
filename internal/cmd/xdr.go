@@ -1,4 +1,4 @@
-// Copyright 2026 dotandev
+// Copyright 2025 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd

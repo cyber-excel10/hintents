@@ -1,0 +1,46 @@
+name: Emoji and Slop Checker
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  check-emojis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch all history to ensure committing back works if needed
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run Emoji/Slop Checker
+        run: |
+          # Ensure emojis.py exists
+          if [ -f emojis.py ]; then
+            python emojis.py
+          else
+            echo "emojis.py not found! Skipping..."
+          fi
+
+      - name: Check for modified files
+        id: git-check
+        run: |
+          git diff --exit-code || echo "modified=true" >> $GITHUB_OUTPUT
+
+      - name: Commit and push if emojis were found and replaced
+        if: steps.git-check.outputs.modified == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add -u
+          git commit -m "chore(ci): auto-remove emojis and slop from markdown files"
+          git push

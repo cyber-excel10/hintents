@@ -161,10 +161,6 @@ func (r *Runner) Run(req *SimulationRequest) (*SimulationResponse, error) {
 
 	resp.ProtocolVersion = &proto.Version
 
-	if resp.Status == "error" {
-		return nil, fmt.Errorf("simulation error: %s", resp.Error)
-	}
-
 	return &resp, nil
 }
 

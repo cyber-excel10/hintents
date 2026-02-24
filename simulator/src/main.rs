@@ -54,6 +54,7 @@ fn send_error(msg: String) {
         optimization_report: None,
         budget_usage: None,
         source_location: None,
+        wasm_offset: None,
     };
     println!("{}", serde_json::to_string(&res).unwrap());
     std::process::exit(1);
@@ -174,6 +175,7 @@ fn main() {
                 optimization_report: None,
                 budget_usage: None,
                 source_location: None,
+                wasm_offset: None,
             };
             println!("{}", serde_json::to_string(&res).unwrap());
             return;
@@ -419,10 +421,10 @@ fn main() {
                 optimization_report,
                 budget_usage: Some(budget_usage),
                 source_location: None,
+                wasm_offset: None,
             };
 
             println!("{}", serde_json::to_string(&response).unwrap());
-        }
         Ok(Err(host_error)) => {
             // Host error during execution (e.g., contract trap, validation failure)
             let structured_error = StructuredError {
@@ -433,6 +435,9 @@ fn main() {
                     host_error
                 )),
             };
+
+            let error_msg = format!("{:?}", host_error);
+            let wasm_offset = extract_wasm_offset(&error_msg);
 
             let response = SimulationResponse {
                 status: "error".to_string(),
@@ -445,6 +450,7 @@ fn main() {
                 optimization_report: None,
                 budget_usage: None,
                 source_location: None,
+                wasm_offset,
             };
             println!("{}", serde_json::to_string(&response).unwrap());
         }
@@ -468,11 +474,30 @@ fn main() {
                 optimization_report: None,
                 budget_usage: None,
                 source_location: None,
+                wasm_offset: None,
             };
             println!("{}", serde_json::to_string(&response).unwrap());
         }
     }
 }
+
+fn extract_wasm_offset(error_msg: &str) -> Option<u64> {
+    // Look for patterns like "@ 0x[HEX]" in the error message
+    // Soroban/Wasmi errors often contain stack traces like:
+    // "  0: func[42] @ 0xa3c"
+    
+    for line in error_msg.lines() {
+        if let Some(pos) = line.find("@ 0x") {
+            let hex_part = &line[pos + 4..];
+            let end = hex_part.find(|c: char| !c.is_ascii_hexdigit()).unwrap_or(hex_part.len());
+            if let Ok(offset) = u64::from_str_radix(&hex_part[..end], 16) {
+                return Some(offset);
+            }
+        }
+    }
+    None
+}
+
 
 #[cfg(test)]
 mod tests {

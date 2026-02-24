@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/dotandev/hintents/internal/errors"
 )
 
 type Network string
@@ -68,12 +70,12 @@ func LoadConfig() (*Config, error) {
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, errors.WrapConfigError("failed to read config file", err)
 	}
 
 	config := DefaultConfig()
 	if err := json.Unmarshal(data, config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+		return nil, errors.WrapConfigError("failed to parse config file", err)
 	}
 
 	return config, nil
@@ -176,17 +178,17 @@ func SaveConfig(config *Config) error {
 	// Ensure config directory exists
 	configDir := filepath.Dir(configPath)
 	if err := os.MkdirAll(configDir, 0700); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
+		return errors.WrapConfigError("failed to create config directory", err)
 	}
 
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+		return errors.WrapConfigError("failed to marshal config", err)
 	}
 
 	// Write with restricted permissions (owner only)
 	if err := os.WriteFile(configPath, data, 0600); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
+		return errors.WrapConfigError("failed to write config file", err)
 	}
 
 	return nil
@@ -194,11 +196,11 @@ func SaveConfig(config *Config) error {
 
 func (c *Config) Validate() error {
 	if c.RpcUrl == "" {
-		return fmt.Errorf("rpc_url cannot be empty")
+		return errors.WrapValidationError("rpc_url cannot be empty")
 	}
 
 	if c.Network != "" && !validNetworks[string(c.Network)] {
-		return fmt.Errorf("invalid network: %s (valid: public, testnet, futurenet, standalone)", c.Network)
+		return errors.WrapInvalidNetwork(string(c.Network))
 	}
 
 	return nil

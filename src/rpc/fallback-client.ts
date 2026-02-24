@@ -238,7 +238,7 @@ export class FallbackRPCClient {
 
         // Open circuit breaker if threshold exceeded
         if (endpoint.failureCount >= this.config.circuitBreakerThreshold) {
-            console.warn(`⚡ Circuit breaker opened for: ${endpoint.url}`);
+            console.warn(`[READY] Circuit breaker opened for: ${endpoint.url}`);
             endpoint.circuitOpen = true;
         }
     }
@@ -319,7 +319,7 @@ export class FallbackRPCClient {
      * Perform health check on all endpoints
      */
     async performHealthChecks(): Promise<void> {
-        console.log('🏥 Performing health checks on all RPC endpoints...');
+        console.log('[HEALTH] Performing health checks on all RPC endpoints...');
 
         const checks = this.endpoints.map(async (endpoint) => {
             try {

@@ -258,9 +258,19 @@ Local WASM Replay Mode:
 		defer span.End()
 
 		var horizonURL string
+		token := rpcTokenFlag
+		if token == "" {
+			token = os.Getenv("ERST_RPC_TOKEN")
+		}
+		if token == "" {
+			if cfg, err := config.Load(); err == nil && cfg.RPCToken != "" {
+				token = cfg.RPCToken
+			}
+		}
+
 		opts := []rpc.ClientOption{
 			rpc.WithNetwork(rpc.Network(networkFlag)),
-			rpc.WithToken(rpcTokenFlag),
+			rpc.WithToken(token),
 		}
 
 		if rpcURLFlag != "" {
@@ -270,6 +280,17 @@ Local WASM Replay Mode:
 			}
 			opts = append(opts, rpc.WithAltURLs(urls))
 			horizonURL = urls[0]
+		} else {
+			cfg, err := config.Load()
+			if err == nil {
+				if len(cfg.RpcUrls) > 0 {
+					opts = append(opts, rpc.WithAltURLs(cfg.RpcUrls))
+					horizonURL = cfg.RpcUrls[0]
+				} else if cfg.RpcUrl != "" {
+					opts = append(opts, rpc.WithHorizonURL(cfg.RpcUrl))
+					horizonURL = cfg.RpcUrl
+				}
+			}
 		}
 
 		client, err := rpc.NewClient(opts...)

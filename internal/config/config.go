@@ -31,12 +31,13 @@ var validNetworks = map[string]bool{
 
 // Config represents the general configuration for erst
 type Config struct {
-	RpcUrl        string  `json:"rpc_url,omitempty"`
-	Network       Network `json:"network,omitempty"`
-	SimulatorPath string  `json:"simulator_path,omitempty"`
-	LogLevel      string  `json:"log_level,omitempty"`
-	CachePath     string  `json:"cache_path,omitempty"`
-	RPCToken      string  `json:"rpc_token,omitempty"`
+	RpcUrl        string   `json:"rpc_url,omitempty"`
+	RpcUrls       []string `json:"rpc_urls,omitempty"`
+	Network       Network  `json:"network,omitempty"`
+	SimulatorPath string   `json:"simulator_path,omitempty"`
+	LogLevel      string   `json:"log_level,omitempty"`
+	CachePath     string   `json:"cache_path,omitempty"`
+	RPCToken      string   `json:"rpc_token,omitempty"`
 }
 
 var defaultConfig = &Config{
@@ -90,6 +91,18 @@ func Load() (*Config, error) {
 		LogLevel:      getEnv("ERST_LOG_LEVEL", defaultConfig.LogLevel),
 		CachePath:     getEnv("ERST_CACHE_PATH", defaultConfig.CachePath),
 		RPCToken:      getEnv("ERST_RPC_TOKEN", ""),
+	}
+
+	if urlsEnv := os.Getenv("ERST_RPC_URLS"); urlsEnv != "" {
+		cfg.RpcUrls = strings.Split(urlsEnv, ",")
+		for i := range cfg.RpcUrls {
+			cfg.RpcUrls[i] = strings.TrimSpace(cfg.RpcUrls[i])
+		}
+	} else if urlsEnv := os.Getenv("STELLAR_RPC_URLS"); urlsEnv != "" {
+		cfg.RpcUrls = strings.Split(urlsEnv, ",")
+		for i := range cfg.RpcUrls {
+			cfg.RpcUrls[i] = strings.TrimSpace(cfg.RpcUrls[i])
+		}
 	}
 
 	if err := cfg.loadFromFile(); err != nil {
@@ -147,11 +160,31 @@ func (c *Config) parseTOML(content string) error {
 		}
 
 		key := strings.TrimSpace(parts[0])
-		value := strings.Trim(strings.TrimSpace(parts[1]), "\"'")
+		rawVal := strings.TrimSpace(parts[1])
+
+		if key == "rpc_urls" && strings.HasPrefix(rawVal, "[") && strings.HasSuffix(rawVal, "]") {
+			// Basic array parsing for TOML-like lists: ["a", "b"]
+			rawVal = strings.Trim(rawVal, "[]")
+			parts := strings.Split(rawVal, ",")
+			var urls []string
+			for _, p := range parts {
+				urls = append(urls, strings.Trim(strings.TrimSpace(p), "\"'"))
+			}
+			c.RpcUrls = urls
+			continue
+		}
+
+		value := strings.Trim(rawVal, "\"'")
 
 		switch key {
 		case "rpc_url":
 			c.RpcUrl = value
+		case "rpc_urls":
+			// Fallback if not an array but comma-separated string
+			c.RpcUrls = strings.Split(value, ",")
+			for i := range c.RpcUrls {
+				c.RpcUrls[i] = strings.TrimSpace(c.RpcUrls[i])
+			}
 		case "network":
 			c.Network = Network(value)
 		case "simulator_path":

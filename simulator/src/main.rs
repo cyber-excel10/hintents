@@ -5,10 +5,12 @@ mod config;
 mod gas_optimizer;
 mod runner;
 mod source_mapper;
+mod stack_trace;
 mod types;
 
 use crate::gas_optimizer::{BudgetMetrics, GasOptimizationAdvisor, CPU_LIMIT, MEMORY_LIMIT};
 use crate::source_mapper::SourceMapper;
+use crate::stack_trace::{decode_error, WasmStackTrace};
 use crate::types::*;
 use base64::Engine;
 use soroban_env_host::xdr::ReadXdr;
@@ -43,6 +45,7 @@ fn init_logger() {
 }
 
 fn send_error(msg: String) {
+    let trace = WasmStackTrace::from_host_error(&msg);
     let res = SimulationResponse {
         status: "error".to_string(),
         error: Some(msg),
@@ -54,6 +57,7 @@ fn send_error(msg: String) {
         optimization_report: None,
         budget_usage: None,
         source_location: None,
+        stack_trace: Some(trace),
     };
     println!("{}", serde_json::to_string(&res).unwrap());
     std::process::exit(1);
@@ -142,9 +146,10 @@ fn main() {
     // Read JSON from Stdin
     let mut buffer = String::new();
     if let Err(e) = std::io::stdin().read_to_string(&mut buffer) {
+        let err_msg = format!("Failed to read stdin: {}", e);
         let res = SimulationResponse {
             status: "error".to_string(),
-            error: Some(format!("Failed to read stdin: {}", e)),
+            error: Some(err_msg.clone()),
             events: vec![],
             diagnostic_events: vec![],
             categorized_events: vec![],
@@ -153,9 +158,10 @@ fn main() {
             optimization_report: None,
             budget_usage: None,
             source_location: None,
+            stack_trace: None,
         };
         println!("{}", serde_json::to_string(&res).unwrap());
-        eprintln!("Failed to read stdin: {}", e);
+        eprintln!("{}", err_msg);
         return;
     }
 
@@ -174,6 +180,7 @@ fn main() {
                 optimization_report: None,
                 budget_usage: None,
                 source_location: None,
+                stack_trace: None,
             };
             println!("{}", serde_json::to_string(&res).unwrap());
             return;
@@ -419,20 +426,26 @@ fn main() {
                 optimization_report,
                 budget_usage: Some(budget_usage),
                 source_location: None,
+                stack_trace: None,
             };
 
             println!("{}", serde_json::to_string(&response).unwrap());
         }
         Ok(Err(host_error)) => {
             // Host error during execution (e.g., contract trap, validation failure)
+            let error_debug = format!("{:?}", host_error);
+            let wasm_trace = WasmStackTrace::from_host_error(&error_debug);
+
             let structured_error = StructuredError {
                 error_type: "HostError".to_string(),
-                message: format!("{:?}", host_error),
+                message: error_debug.clone(),
                 details: Some(format!(
-                    "Contract execution failed with host error: {:?}",
-                    host_error
+                    "Contract execution failed with host error: {}",
+                    error_debug
                 )),
             };
+
+            let trace_display = wasm_trace.display();
 
             let response = SimulationResponse {
                 status: "error".to_string(),
@@ -440,11 +453,12 @@ fn main() {
                 events: vec![],
                 diagnostic_events: vec![],
                 categorized_events: vec![],
-                logs: vec![],
+                logs: vec![format!("Stack trace:\n{}", trace_display)],
                 flamegraph: None,
                 optimization_report: None,
                 budget_usage: None,
                 source_location: None,
+                stack_trace: Some(wasm_trace),
             };
             println!("{}", serde_json::to_string(&response).unwrap());
         }
@@ -457,6 +471,8 @@ fn main() {
                 "Unknown panic".to_string()
             };
 
+            let wasm_trace = WasmStackTrace::from_panic(&panic_msg);
+
             let response = SimulationResponse {
                 status: "error".to_string(),
                 error: Some(format!("Simulator panicked: {}", panic_msg)),
@@ -468,6 +484,7 @@ fn main() {
                 optimization_report: None,
                 budget_usage: None,
                 source_location: None,
+                stack_trace: Some(wasm_trace),
             };
             println!("{}", serde_json::to_string(&response).unwrap());
         }
@@ -481,6 +498,12 @@ mod tests {
     #[test]
     fn test_decode_vm_traps() {
         let msg = decode_error("Error: Wasm Trap: out of bounds memory access");
-        assert!(msg.contains("VM Trap: Out of Bounds Access"));
+        assert!(msg.contains("VM Trap: Out of bounds memory access"));
+    }
+
+    #[test]
+    fn test_decode_unreachable() {
+        let msg = decode_error("wasm trap: unreachable");
+        assert!(msg.contains("VM Trap: Unreachable"));
     }
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::gas_optimizer::OptimizationReport;
+use crate::stack_trace::WasmStackTrace;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -29,6 +30,8 @@ pub struct SimulationResponse {
     pub budget_usage: Option<BudgetUsage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_location: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_trace: Option<WasmStackTrace>,
 }
 
 #[derive(Debug, Serialize)]

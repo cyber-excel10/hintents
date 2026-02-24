@@ -16,7 +16,6 @@ import (
 
 	"github.com/dotandev/hintents/internal/config"
 	"github.com/dotandev/hintents/internal/errors"
-	"github.com/dotandev/hintents/internal/localization"
 	"github.com/dotandev/hintents/internal/logger"
 	"github.com/dotandev/hintents/internal/rpc"
 	"github.com/dotandev/hintents/internal/security"
@@ -80,7 +79,7 @@ Example:
 			case rpc.Testnet, rpc.Mainnet, rpc.Futurenet:
 				return nil
 			default:
-				return fmt.Errorf("invalid network: %s. Must be one of: testnet, mainnet, futurenet", networkFlag)
+				return errors.WrapInvalidNetwork(networkFlag)
 			}
 		},
 		RunE: d.runDebug,
@@ -118,7 +117,7 @@ func (d *DebugCommand) runDebug(cmd *cobra.Command, args []string) error {
 
 	client, err := rpc.NewClient(opts...)
 	if err != nil {
-		return fmt.Errorf("failed to create client: %w", err)
+		return errors.WrapValidationError(fmt.Sprintf("failed to create client: %v", err))
 	}
 
 	fmt.Printf("Debugging transaction: %s\n", txHash)
@@ -130,7 +129,7 @@ func (d *DebugCommand) runDebug(cmd *cobra.Command, args []string) error {
 	// Fetch transaction details
 	resp, err := client.GetTransaction(cmd.Context(), txHash)
 	if err != nil {
-		return fmt.Errorf("failed to fetch transaction: %w", err)
+		return errors.WrapRPCConnectionFailed(err)
 	}
 
 	fmt.Printf("Transaction fetched successfully. Envelope size: %d bytes\n", len(resp.EnvelopeXdr))
@@ -189,11 +188,11 @@ Local WASM Replay Mode:
 		}
 
 		if len(args) == 0 {
-			return fmt.Errorf("transaction hash is required when not using --wasm or --demo flag")
+			return errors.WrapValidationError("transaction hash is required when not using --wasm or --demo flag")
 		}
 
 		if err := rpc.ValidateTransactionHash(args[0]); err != nil {
-			return fmt.Errorf("error: invalid transaction hash format: %w", err)
+			return errors.WrapValidationError(fmt.Sprintf("invalid transaction hash format: %v", err))
 		}
 
 		// Validate network flag
@@ -210,7 +209,7 @@ Local WASM Replay Mode:
 			case rpc.Testnet, rpc.Mainnet, rpc.Futurenet:
 				// valid
 			default:
-				return fmt.Errorf("invalid compare-network: %s. Must be one of: testnet, mainnet, futurenet", compareNetworkFlag)
+				return errors.WrapInvalidNetwork(compareNetworkFlag)
 			}
 		}
 		return nil
@@ -244,7 +243,7 @@ Local WASM Replay Mode:
 				ServiceName: "erst",
 			})
 			if err != nil {
-				return fmt.Errorf("failed to initialize telemetry: %w", err)
+				return errors.WrapValidationError(fmt.Sprintf("failed to initialize telemetry: %v", err))
 			}
 			defer cleanup()
 		}
@@ -275,7 +274,7 @@ Local WASM Replay Mode:
 
 		client, err := rpc.NewClient(opts...)
 		if err != nil {
-			return fmt.Errorf("failed to create client: %w", err)
+			return errors.WrapValidationError(fmt.Sprintf("failed to create client: %v", err))
 		}
 
 		if horizonURL == "" {
@@ -315,12 +314,12 @@ Local WASM Replay Mode:
 
 			if err != nil {
 				spinner.StopWithError("Failed to poll for transaction")
-				return fmt.Errorf("watch mode error: %w", err)
+				return errors.WrapSimulationLogicError(fmt.Sprintf("watch mode error: %v", err))
 			}
 
 			if !result.Found {
 				spinner.StopWithError("Transaction not found within timeout")
-				return fmt.Errorf("transaction %s not found after %d seconds", txHash, watchTimeoutFlag)
+				return errors.WrapTransactionNotFound(fmt.Errorf("not found after %d seconds", watchTimeoutFlag))
 			}
 
 			spinner.StopWithMessage("Transaction found! Starting debug...")
@@ -329,7 +328,7 @@ Local WASM Replay Mode:
 		fmt.Printf("Fetching transaction: %s\n", txHash)
 		resp, err := client.GetTransaction(ctx, txHash)
 		if err != nil {
-			return fmt.Errorf(localization.Get("error.fetch_transaction"), err)
+			return errors.WrapRPCConnectionFailed(err)
 		}
 
 		fmt.Printf("Transaction fetched successfully. Envelope size: %d bytes\n", len(resp.EnvelopeXdr))
@@ -337,13 +336,13 @@ Local WASM Replay Mode:
 		// Extract ledger keys for replay
 		keys, err := extractLedgerKeys(resp.ResultMetaXdr)
 		if err != nil {
-			return fmt.Errorf("failed to extract ledger keys: %w", err)
+			return errors.WrapUnmarshalFailed(err, "result meta")
 		}
 
 		// Initialize Simulator Runner
 		runner, err := simulator.NewRunner("", tracingEnabled)
 		if err != nil {
-			return fmt.Errorf("failed to initialize simulator: %w", err)
+			return errors.WrapSimulatorNotFound(err.Error())
 		}
 
 		// Determine timestamps to simulate
@@ -371,7 +370,7 @@ Local WASM Replay Mode:
 				if snapshotFlag != "" {
 					snap, err := snapshot.Load(snapshotFlag)
 					if err != nil {
-						return fmt.Errorf("failed to load snapshot: %w", err)
+						return errors.WrapValidationError(fmt.Sprintf("failed to load snapshot: %v", err))
 					}
 					ledgerEntries = snap.ToMap()
 					fmt.Printf("Loaded %d ledger entries from snapshot\n", len(ledgerEntries))
@@ -382,7 +381,7 @@ Local WASM Replay Mode:
 						logger.Logger.Warn("Failed to extract ledger entries from metadata, fetching from network", "error", err)
 						ledgerEntries, err = client.GetLedgerEntries(ctx, keys)
 						if err != nil {
-							return fmt.Errorf("failed to fetch ledger entries: %w", err)
+							return errors.WrapRPCConnectionFailed(err)
 						}
 					} else {
 						logger.Logger.Info("Extracted ledger entries for simulation", "count", len(ledgerEntries))
@@ -409,7 +408,7 @@ Local WASM Replay Mode:
 
 				simResp, err = runner.Run(simReq)
 				if err != nil {
-					return fmt.Errorf("simulation failed: %w", err)
+					return errors.WrapSimulationFailed(err, "")
 				}
 				printSimulationResult(networkFlag, simResp)
 			} else {
@@ -456,7 +455,7 @@ Local WASM Replay Mode:
 					}
 					compareClient, clientErr := rpc.NewClient(compareOpts...)
 					if clientErr != nil {
-						compareErr = fmt.Errorf("failed to create compare client: %w", clientErr)
+						compareErr = errors.WrapValidationError(fmt.Sprintf("failed to create compare client: %v", clientErr))
 						return
 					}
 					if noCacheFlag {
@@ -465,7 +464,7 @@ Local WASM Replay Mode:
 
 					compareResp, txErr := compareClient.GetTransaction(ctx, txHash)
 					if txErr != nil {
-						compareErr = fmt.Errorf("failed to fetch transaction from %s: %w", compareNetworkFlag, txErr)
+						compareErr = errors.WrapRPCConnectionFailed(txErr)
 						return
 					}
 
@@ -497,10 +496,10 @@ Local WASM Replay Mode:
 
 				wg.Wait()
 				if primaryErr != nil {
-					return fmt.Errorf("primary network error: %w", primaryErr)
+					return errors.WrapRPCConnectionFailed(primaryErr)
 				}
 				if compareErr != nil {
-					return fmt.Errorf("compare network error: %w", compareErr)
+					return errors.WrapRPCConnectionFailed(compareErr)
 				}
 
 				simResp = primaryResult // Use primary for further analysis
@@ -512,7 +511,7 @@ Local WASM Replay Mode:
 		}
 
 		if lastSimResp == nil {
-			return fmt.Errorf("no simulation results generated")
+			return errors.WrapSimulationLogicError("no simulation results generated")
 		}
 
 		// Analysis: Security
@@ -631,7 +630,7 @@ func runLocalWasmReplay() error {
 
 	// Verify WASM file exists
 	if _, err := os.Stat(wasmPath); os.IsNotExist(err) {
-		return fmt.Errorf("WASM file not found: %s", wasmPath)
+		return errors.WrapValidationError(fmt.Sprintf("WASM file not found: %s", wasmPath))
 	}
 
 	fmt.Printf("%s Local WASM Replay Mode\n", visualizer.Symbol("wrench"))
@@ -642,7 +641,7 @@ func runLocalWasmReplay() error {
 	// Create simulator runner
 	runner, err := simulator.NewRunner("", tracingEnabled)
 	if err != nil {
-		return fmt.Errorf("failed to initialize simulator: %w", err)
+		return errors.WrapSimulatorNotFound(err.Error())
 	}
 
 	// Create simulation request with local WASM

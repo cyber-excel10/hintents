@@ -1,13 +1,12 @@
 // Copyright 2025 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package logger
 
 import (
 	"context"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"strings"
 	"sync"

@@ -17,6 +17,7 @@ Currently, when a Soroban transaction fails on mainnet, developers receive a gen
 2.  **Local Simulation**: Re-execute the transaction logically in a local environment.
 3.  **Trace decoding**: Map execution steps and failures back to readable instructions or Rust source lines.
 4.  **Source Mapping**: Map WASM instruction failures to specific Rust source code lines using debug symbols.
+5.  **GitHub Source Links**: Automatically generate clickable GitHub links to source code locations in traces (when in a Git repository).
 5.  **Error Suggestions**: Heuristic-based engine that suggests potential fixes for common Soroban errors.
 
 ## Usage (MVP)
@@ -84,6 +85,7 @@ Optional:
 
 - `ERST_PKCS11_SLOT` (numeric index into the slot list)
 - `ERST_PKCS11_TOKEN_LABEL`
+- `ERST_PKCS11_PIV_SLOT` (YubiKey PIV slot such as 9a, 9c, 9d, 9e, 82-95, f9)
 
 Example:
 
@@ -99,6 +101,8 @@ node dist/index.js audit:sign \
 ```
 
 The command prints the signed audit log JSON to stdout so it can be redirected to a file.
+
+For YubiKey PIV (YKCS11) usage details, see [docs/pkcs11-yubikey.md](docs/pkcs11-yubikey.md).
 
 ## Documentation
 
@@ -162,6 +166,33 @@ We are building this open-source to help the entire Stellar community. All contr
     go test ./...
     cargo test --release -p erst-sim
     ```
+
+## Development
+
+### Code Quality & Linting
+
+This project enforces strict linting rules to maintain code quality. See [docs/STRICT_LINTING.md](docs/STRICT_LINTING.md) for details.
+
+Quick commands:
+
+```bash
+# Run all strict linting (Go + Rust)
+make lint-all-strict
+
+# Go linting only
+make lint-strict
+
+# Rust linting only
+make rust-lint-strict
+
+# Install pre-commit hooks
+pip install pre-commit && pre-commit install
+```
+
+The CI pipeline fails immediately on:
+- Unused variables, imports, or functions
+- Dead code
+- Any linting warnings
 
 ### Code Standards
 

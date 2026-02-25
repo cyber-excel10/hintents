@@ -76,6 +76,7 @@ type SimulationResponse struct {
 	BudgetUsage       *BudgetUsage         `json:"budget_usage,omitempty"` // Resource consumption metrics
 	CategorizedEvents []CategorizedEvent   `json:"categorized_events,omitempty"`
 	ProtocolVersion   *uint32              `json:"protocol_version,omitempty"` // Protocol version used
+	StackTrace        *WasmStackTrace      `json:"stack_trace,omitempty"`      // Enhanced WASM stack trace on traps
 	SourceLocation    string               `json:"source_location,omitempty"`
 	WasmOffset        *uint64              `json:"wasm_offset,omitempty"`
 }
@@ -104,6 +105,24 @@ type Session struct {
 	Error     string    `json:"error,omitempty"`
 	Events    string    `json:"events,omitempty"` // JSON string
 	Logs      string    `json:"logs,omitempty"`   // JSON string
+}
+
+// WasmStackTrace holds a structured WASM call stack captured on a trap.
+// This bypasses Soroban Host abstractions to expose the raw Wasmi call stack.
+type WasmStackTrace struct {
+	TrapKind       interface{}  `json:"trap_kind"`       // Categorised trap reason
+	RawMessage     string       `json:"raw_message"`     // Original error string
+	Frames         []StackFrame `json:"frames"`          // Ordered call stack frames
+	SorobanWrapped bool         `json:"soroban_wrapped"` // Whether the error passed through Soroban Host
+}
+
+// StackFrame represents a single frame in a WASM call stack.
+type StackFrame struct {
+	Index      int     `json:"index"`                 // Position in the call stack (0 = trap site)
+	FuncIndex  *uint32 `json:"func_index,omitempty"`  // WASM function index
+	FuncName   *string `json:"func_name,omitempty"`   // Demangled function name
+	WasmOffset *uint64 `json:"wasm_offset,omitempty"` // Byte offset in the WASM module
+	Module     *string `json:"module,omitempty"`      // Module name from name section
 }
 
 type DB struct {

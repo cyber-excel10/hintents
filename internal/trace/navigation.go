@@ -24,13 +24,22 @@ type ExecutionState struct {
 	Memory      map[string]interface{} `json:"memory,omitempty"`
 }
 
-// StateSnapshot represents a complete state snapshot for efficient reconstruction
+// DefaultSnapshotInterval is the number of steps between state snapshots.
+// A larger interval reduces ingestion overhead at the cost of slightly more
+// replay work during ReconstructStateAt. 100 is well-suited to large traces.
+const DefaultSnapshotInterval = 100
+
+// StateSnapshot represents a complete state snapshot for efficient reconstruction.
+// HostState and Memory are populated lazily the first time the snapshot is read,
+// keeping AddState O(1) regardless of trace size.
 type StateSnapshot struct {
 	Step      int                    `json:"step"`
 	Timestamp time.Time              `json:"timestamp"`
 	HostState map[string]interface{} `json:"host_state"`
 	Memory    map[string]interface{} `json:"memory"`
 	CallStack []string               `json:"call_stack"`
+	// built tracks whether HostState/Memory have been populated.
+	built bool
 }
 
 // ExecutionTrace manages the complete execution trace with bi-directional navigation
@@ -44,10 +53,12 @@ type ExecutionTrace struct {
 	SnapshotInterval int              `json:"snapshot_interval"`
 }
 
-// NewExecutionTrace creates a new execution trace
+// NewExecutionTrace creates a new execution trace.
+// snapshotInterval controls how frequently lazy state snapshots are registered;
+// pass 0 or a negative value to use DefaultSnapshotInterval.
 func NewExecutionTrace(txHash string, snapshotInterval int) *ExecutionTrace {
 	if snapshotInterval <= 0 {
-		snapshotInterval = 10 // Default: snapshot every 10 steps
+		snapshotInterval = DefaultSnapshotInterval
 	}
 
 	return &ExecutionTrace{
@@ -60,26 +71,40 @@ func NewExecutionTrace(txHash string, snapshotInterval int) *ExecutionTrace {
 	}
 }
 
-// AddState adds a new execution state and creates snapshots as needed
+// ensureSnapshot materialises the HostState and Memory for snapshot at index idx
+// if they have not been built yet. This is the only place reconstructStateUpTo is
+// called, keeping AddState free of any blocking reconstruction work.
+func (t *ExecutionTrace) ensureSnapshot(idx int) {
+	s := &t.Snapshots[idx]
+	if s.built {
+		return
+	}
+	reconstructed, err := t.reconstructStateUpTo(s.Step)
+	if err == nil {
+		s.HostState = copyMap(reconstructed.HostState)
+		s.Memory = copyMap(reconstructed.Memory)
+	}
+	s.built = true
+}
+
+// AddState adds a new execution state and registers a lazy snapshot as needed.
+// Snapshot data (HostState/Memory) is NOT computed here; it is deferred until
+// the first call to ReconstructStateAt that needs this snapshot. This keeps
+// AddState O(1) and avoids blocking the caller while parsing large traces.
 func (t *ExecutionTrace) AddState(state ExecutionState) {
 	state.Step = len(t.States)
 	state.Timestamp = time.Now()
 	t.States = append(t.States, state)
 
-	// Create snapshot at intervals
+	// Register a snapshot placeholder at each interval boundary.
+	// HostState and Memory are intentionally left nil (built=false).
 	if state.Step%t.SnapshotInterval == 0 {
-		// Reconstruct the complete state up to this point for the snapshot
-		reconstructed, err := t.reconstructStateUpTo(state.Step)
-		if err == nil {
-			snapshot := StateSnapshot{
-				Step:      state.Step,
-				Timestamp: state.Timestamp,
-				HostState: copyMap(reconstructed.HostState),
-				Memory:    copyMap(reconstructed.Memory),
-				CallStack: t.getCurrentCallStack(),
-			}
-			t.Snapshots = append(t.Snapshots, snapshot)
-		}
+		t.Snapshots = append(t.Snapshots, StateSnapshot{
+			Step:      state.Step,
+			Timestamp: state.Timestamp,
+			CallStack: t.getCurrentCallStack(),
+			// built: false — populated on first read via ensureSnapshot
+		})
 	}
 }
 
@@ -165,17 +190,19 @@ func (t *ExecutionTrace) GetCurrentState() (*ExecutionState, error) {
 	return &t.States[t.CurrentStep], nil
 }
 
-// ReconstructStateAt reconstructs the complete state at a given step
+// ReconstructStateAt reconstructs the complete state at a given step.
+// It finds the nearest snapshot (materialising it lazily if needed) to
+// minimise the number of states that must be replayed.
 func (t *ExecutionTrace) ReconstructStateAt(step int) (*ExecutionState, error) {
 	if step < 0 || step >= len(t.States) {
 		return nil, fmt.Errorf("step %d out of range", step)
 	}
 
 	// Find the nearest snapshot before or at the target step
-	var baseSnapshot *StateSnapshot
+	snapshotIdx := -1
 	for i := len(t.Snapshots) - 1; i >= 0; i-- {
 		if t.Snapshots[i].Step <= step {
-			baseSnapshot = &t.Snapshots[i]
+			snapshotIdx = i
 			break
 		}
 	}
@@ -187,9 +214,11 @@ func (t *ExecutionTrace) ReconstructStateAt(step int) (*ExecutionState, error) {
 		Memory:    make(map[string]interface{}),
 	}
 
-	// Start from snapshot or beginning
+	// Start from snapshot or beginning, materialising lazily if needed
 	startStep := 0
-	if baseSnapshot != nil {
+	if snapshotIdx >= 0 {
+		t.ensureSnapshot(snapshotIdx)
+		baseSnapshot := &t.Snapshots[snapshotIdx]
 		startStep = baseSnapshot.Step
 		reconstructedState.HostState = copyMap(baseSnapshot.HostState)
 		reconstructedState.Memory = copyMap(baseSnapshot.Memory)

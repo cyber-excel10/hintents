@@ -1,15 +1,14 @@
 // Copyright (c) Hintents Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AuditSigner } from './types';
-import { SoftwareEd25519Signer } from './softwareSigner';
-import { Pkcs11Ed25519Signer } from './pkcs11Signer';
-import { KmsEd25519Signer } from './kmsSigner';
+import type { AuditSigner } from "./types";
+import { SoftwareEd25519Signer } from "./softwareSigner";
+import { Pkcs11Ed25519Signer } from "./pkcs11Signer";
+import { KmsSigner } from "./kmsSigner";
 
-export type HsmProvider = 'pkcs11' | 'software' | 'kms';
-import { KmsSigner } from './kmsSigner';
+export type HsmProvider = "pkcs11" | "software" | "kms";
 
-export type SigningProvider = 'software' | 'pkcs11' | 'kms';
+export type SigningProvider = "software" | "pkcs11" | "kms";
 
 export interface CreateAuditSignerOpts {
   /** Signing provider to use. Defaults to 'software'. */
@@ -30,29 +29,30 @@ export interface CreateAuditSignerOpts {
 }
 
 export function createAuditSigner(opts: CreateAuditSignerOpts): AuditSigner {
-  const provider = (opts.hsmProvider?.toLowerCase() ?? 'software') as SigningProvider;
+  const provider = (opts.hsmProvider?.toLowerCase() ??
+    "software") as SigningProvider;
 
-  if (provider === 'kms') {
-    return new KmsEd25519Signer();
-  }
-
-  if (provider === 'pkcs11') {
-    return new Pkcs11Ed25519Signer();
-  }
-
-  if (provider === 'kms') {
+  if (provider === "kms") {
     return new KmsSigner({
       keyId: opts.kmsKeyId,
       signingAlgorithm: opts.kmsSigningAlgorithm,
     });
   }
 
-  if (provider === 'software') {
+  if (provider === "pkcs11") {
+    return new Pkcs11Ed25519Signer();
+  }
+
+  if (provider === "software") {
     if (!opts.softwarePrivateKeyPem) {
-      throw new Error('software signing selected but no private key was provided');
+      throw new Error(
+        "software signing selected but no private key was provided",
+      );
     }
     return new SoftwareEd25519Signer(opts.softwarePrivateKeyPem);
   }
 
-  throw new Error(`unknown signing provider: "${provider}". Valid options: software, pkcs11, kms`);
+  throw new Error(
+    `unknown signing provider: "${provider}". Valid options: software, pkcs11, kms`,
+  );
 }

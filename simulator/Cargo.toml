@@ -3,6 +3,18 @@ name = "simulator"
 version = "0.1.0"
 edition = "2021"
 
+[lints.rust]
+unused_variables = "deny"
+unused_imports = "deny"
+unused_mut = "deny"
+dead_code = "deny"
+unused_assignments = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "warn"
+nursery = "warn"
+
 [dependencies]
 # soroban-env-host major version == Soroban protocol version.
 # Protocol 21 (v21.x) introduced DiagnosticLevel, get_events(), and the

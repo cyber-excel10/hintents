@@ -11,6 +11,85 @@ const lazyRequire = (name: string): any => {
   return eval('require')(name);
 };
 
+const TOKEN_LABEL_PADDING = /\0/g;
+const PIV_SLOT_REGEX = /^(0x)?[0-9a-fA-F]{2}$/;
+
+export const normalizeTokenLabel = (label: string): string =>
+  label.replace(TOKEN_LABEL_PADDING, '').trim();
+
+export const resolveYkcs11KeyIdHex = (pivSlot: string): string => {
+  const trimmed = pivSlot.trim().toLowerCase();
+  if (!PIV_SLOT_REGEX.test(trimmed)) {
+    throw new Error(`Invalid PIV slot '${pivSlot}'. Expected a 2-digit hex value like 9a, 9c, or f9.`);
+  }
+
+  const hex = trimmed.startsWith('0x') ? trimmed.slice(2) : trimmed;
+  const slotValue = Number.parseInt(hex, 16);
+
+  let keyId: number | undefined;
+  if (slotValue === 0x9a) keyId = 1;
+  if (slotValue === 0x9c) keyId = 2;
+  if (slotValue === 0x9d) keyId = 3;
+  if (slotValue === 0x9e) keyId = 4;
+  if (slotValue >= 0x82 && slotValue <= 0x95) keyId = slotValue - 0x82 + 5;
+  if (slotValue === 0xf9) keyId = 25;
+
+  if (!keyId) {
+    throw new Error(
+      `Unsupported PIV slot '${pivSlot}'. Supported slots: 9a, 9c, 9d, 9e, 82-95, f9.`
+    );
+  }
+
+  return keyId.toString(16).padStart(2, '0');
+};
+
+export const resolvePkcs11KeyIdHex = (cfg: { keyIdHex?: string; pivSlot?: string }): string | undefined => {
+  if (cfg.keyIdHex) {
+    const normalized = cfg.keyIdHex.trim();
+    if (!/^[0-9a-fA-F]+$/.test(normalized) || normalized.length % 2 !== 0) {
+      throw new Error(
+        `Invalid ERST_PKCS11_KEY_ID '${cfg.keyIdHex}'. Expected an even-length hex string (e.g., 01, 0a, 10).`
+      );
+    }
+    return normalized;
+  }
+  if (cfg.pivSlot) return resolveYkcs11KeyIdHex(cfg.pivSlot);
+  return undefined;
+};
+
+const resolvePkcs11Slot = (opts: {
+  slots: number[];
+  slotIndex?: string;
+  tokenLabel?: string;
+  getTokenInfo: (slotId: number) => { label?: string };
+}): number | undefined => {
+  if (opts.tokenLabel) {
+    const desired = normalizeTokenLabel(opts.tokenLabel);
+    const available: string[] = [];
+    for (const slot of opts.slots) {
+      const info = opts.getTokenInfo(slot);
+      const label = info?.label ? normalizeTokenLabel(info.label) : '';
+      if (label) available.push(label);
+      if (label && label === desired) return slot;
+    }
+
+    if (available.length > 0) {
+      throw new Error(
+        `Configured ERST_PKCS11_TOKEN_LABEL (${opts.tokenLabel}) did not match any tokens. Available tokens: ${available.join(', ')}`
+      );
+    }
+    throw new Error(
+      `Configured ERST_PKCS11_TOKEN_LABEL (${opts.tokenLabel}) did not match any tokens. No token labels were available.`
+    );
+  }
+
+  if (opts.slotIndex) {
+    return opts.slots[Number(opts.slotIndex)];
+  }
+
+  return opts.slots[0];
+};
+
 /**
  * PKCS#11-backed signer.
  *
@@ -20,7 +99,7 @@ const lazyRequire = (name: string): any => {
  * - ERST_PKCS11_MODULE  : path to PKCS#11 module (e.g. /usr/lib/softhsm/libsofthsm2.so)
  * - ERST_PKCS11_TOKEN_LABEL or ERST_PKCS11_SLOT
  * - ERST_PKCS11_PIN
- * - ERST_PKCS11_KEY_LABEL or ERST_PKCS11_KEY_ID
+ * - ERST_PKCS11_KEY_LABEL or ERST_PKCS11_KEY_ID or ERST_PKCS11_PIV_SLOT
  *
  * Notes:
  * - This implementation uses the optional dependency `pkcs11js`.
@@ -34,6 +113,7 @@ export class Pkcs11Ed25519Signer implements AuditSigner {
     pin: process.env.ERST_PKCS11_PIN,
     keyLabel: process.env.ERST_PKCS11_KEY_LABEL,
     keyIdHex: process.env.ERST_PKCS11_KEY_ID,
+    pivSlot: process.env.ERST_PKCS11_PIV_SLOT,
     publicKeyPem: process.env.ERST_PKCS11_PUBLIC_KEY_PEM,
   };
 
@@ -55,8 +135,10 @@ export class Pkcs11Ed25519Signer implements AuditSigner {
     if (!this.cfg.pin) {
       throw new Error('pkcs11 provider selected but ERST_PKCS11_PIN is not set');
     }
-    if (!this.cfg.keyLabel && !this.cfg.keyIdHex) {
-      throw new Error('pkcs11 provider selected but neither ERST_PKCS11_KEY_LABEL nor ERST_PKCS11_KEY_ID is set');
+    if (!this.cfg.keyLabel && !this.cfg.keyIdHex && !this.cfg.pivSlot) {
+      throw new Error(
+        'pkcs11 provider selected but neither ERST_PKCS11_KEY_LABEL, ERST_PKCS11_KEY_ID, nor ERST_PKCS11_PIV_SLOT is set'
+      );
     }
   }
 
@@ -123,7 +205,12 @@ export class Pkcs11Ed25519Signer implements AuditSigner {
       }
 
       // Choose slot
-      const slot = this.cfg.slot ? slots[Number(this.cfg.slot)] : slots[0];
+      const slot = resolvePkcs11Slot({
+        slots,
+        slotIndex: this.cfg.slot,
+        tokenLabel: this.cfg.tokenLabel,
+        getTokenInfo: (slotId) => lib.C_GetTokenInfo(slotId),
+      });
       if (slot === undefined) {
         throw new Error(`Configured ERST_PKCS11_SLOT (${this.cfg.slot}) did not resolve to a valid slot. Available slots: ${slots.length}`);
       }
@@ -164,7 +251,8 @@ export class Pkcs11Ed25519Signer implements AuditSigner {
         // Locate private key by label or id
         const template: any[] = [{ type: pkcs11.CKA_CLASS, value: pkcs11.CKO_PRIVATE_KEY }];
         if (this.cfg.keyLabel) template.push({ type: pkcs11.CKA_LABEL, value: this.cfg.keyLabel });
-        if (this.cfg.keyIdHex) template.push({ type: pkcs11.CKA_ID, value: Buffer.from(this.cfg.keyIdHex, 'hex') });
+        const keyIdHex = resolvePkcs11KeyIdHex(this.cfg);
+        if (keyIdHex) template.push({ type: pkcs11.CKA_ID, value: Buffer.from(keyIdHex, 'hex') });
 
         lib.C_FindObjectsInit(session, template);
         const keys = lib.C_FindObjects(session, 1);

@@ -46,6 +46,7 @@ var (
 	ErrLedgerNotFound       = errors.New("ledger not found")
 	ErrLedgerArchived       = errors.New("ledger has been archived")
 	ErrRateLimitExceeded    = errors.New("rate limit exceeded")
+	ErrRPCResponseTooLarge  = errors.New("RPC response too large")
 	ErrConfigFailed         = errors.New("configuration error")
 	ErrNetworkNotFound      = errors.New("network not found")
 )
@@ -86,6 +87,20 @@ func (e *RateLimitError) Error() string {
 
 func (e *RateLimitError) Is(target error) bool {
 	return target == ErrRateLimitExceeded
+}
+
+// ResponseTooLargeError indicates the Soroban RPC response exceeded server limits.
+type ResponseTooLargeError struct {
+	URL     string
+	Message string
+}
+
+func (e *ResponseTooLargeError) Error() string {
+	return e.Message
+}
+
+func (e *ResponseTooLargeError) Is(target error) bool {
+	return target == ErrRPCResponseTooLarge
 }
 
 // Wrap functions for consistent error wrapping
@@ -196,4 +211,17 @@ func WrapConfigError(msg string, err error) error {
 
 func WrapNetworkNotFound(network string) error {
 	return fmt.Errorf("%w: %s", ErrNetworkNotFound, network)
+}
+
+// WrapRPCResponseTooLarge wraps an HTTP 413 response into a readable message
+// explaining that the Soroban RPC response exceeded the server's size limit.
+func WrapRPCResponseTooLarge(url string) error {
+	return &ResponseTooLargeError{
+		URL: url,
+		Message: fmt.Sprintf(
+			"%v: the response from %s exceeded the server's maximum allowed size; "+
+				"reduce the request scope (e.g. fewer ledger keys) or contact the RPC provider"+
+				" to increase the Soroban RPC response limit",
+			ErrRPCResponseTooLarge, url),
+	}
 }

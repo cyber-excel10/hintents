@@ -493,6 +493,9 @@ func (c *Client) handleLedgerError(err error, sequence uint32) error {
 		case 410:
 			logger.Logger.Warn("Ledger archived", "sequence", sequence, "status", 410)
 			return errors.WrapLedgerArchived(sequence)
+		case 413:
+			logger.Logger.Warn("Response too large", "sequence", sequence, "status", 413)
+			return errors.WrapRPCResponseTooLarge(c.HorizonURL)
 		case 429:
 			logger.Logger.Warn("Rate limit exceeded", "sequence", sequence, "status", 429)
 			return errors.WrapRateLimitExceeded()
@@ -520,6 +523,11 @@ func IsLedgerArchived(err error) bool {
 // IsRateLimitError checks if error is a rate limit error
 func IsRateLimitError(err error) bool {
 	return errors.Is(err, errors.ErrRateLimitExceeded)
+}
+
+// IsResponseTooLarge checks if error indicates the RPC response exceeded size limits
+func IsResponseTooLarge(err error) bool {
+	return errors.Is(err, errors.ErrRPCResponseTooLarge)
 }
 
 // GetLedgerEntries fetches the current state of ledger entries from Soroban RPC
@@ -615,6 +623,10 @@ func (c *Client) getLedgerEntriesAttempt(ctx context.Context, keysToFetch []stri
 		return nil, errors.WrapRPCConnectionFailed(err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusRequestEntityTooLarge {
+		return nil, errors.WrapRPCResponseTooLarge(targetURL)
+	}
 
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -779,6 +791,10 @@ func (c *Client) simulateTransactionAttempt(ctx context.Context, envelopeXdr str
 		return nil, errors.WrapRPCConnectionFailed(err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusRequestEntityTooLarge {
+		return nil, errors.WrapRPCResponseTooLarge(c.HorizonURL)
+	}
 
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {

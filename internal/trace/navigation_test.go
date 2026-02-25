@@ -366,3 +366,89 @@ func TestExecutionTrace_FilteredNavigation(t *testing.T) {
 		t.Errorf("FilteredCurrentIndex at non-matching step = %d, want 0", idx)
 	}
 }
+
+// TestExecutionTrace_AddStateDoesNotBlock verifies that AddState with a large
+// number of states does not synchronously reconstruct snapshot state. The
+// snapshot HostState must be nil (un-built) immediately after AddState.
+func TestExecutionTrace_AddStateDoesNotBlock(t *testing.T) {
+	const numStates = 10_000
+	trace := NewExecutionTrace("large-trace-hash", 100)
+
+	for i := 0; i < numStates; i++ {
+		trace.AddState(ExecutionState{
+			Operation: "step",
+			HostState: map[string]interface{}{"counter": i},
+		})
+	}
+
+	if len(trace.States) != numStates {
+		t.Fatalf("expected %d states, got %d", numStates, len(trace.States))
+	}
+
+	// Snapshots should have been registered (one per 100 steps)
+	expectedSnapshots := numStates / 100
+	if len(trace.Snapshots) != expectedSnapshots {
+		t.Fatalf("expected %d snapshots, got %d", expectedSnapshots, len(trace.Snapshots))
+	}
+
+	// None of the snapshot HostState maps should be populated yet (lazy init).
+	for i, snap := range trace.Snapshots {
+		if snap.built {
+			t.Errorf("snapshot %d was eagerly built; expected lazy initialization", i)
+		}
+		if snap.HostState != nil {
+			t.Errorf("snapshot %d HostState is non-nil before first read", i)
+		}
+	}
+}
+
+// TestExecutionTrace_LazySnapshotMaterializesOnRead verifies that snapshot
+// data IS available after ReconstructStateAt has been called.
+func TestExecutionTrace_LazySnapshotMaterializesOnRead(t *testing.T) {
+	trace := NewExecutionTrace("lazy-test", 5)
+
+	for i := 0; i < 15; i++ {
+		trace.AddState(ExecutionState{
+			Operation: "step",
+			HostState: map[string]interface{}{"v": i},
+		})
+	}
+
+	// Before any reconstruction, snapshot at index 0 (step 0) should be unbuilt.
+	if trace.Snapshots[0].built {
+		t.Error("snapshot[0] should not be built before first ReconstructStateAt call")
+	}
+
+	// Reconstruct step 7; this will need the snapshot at step 5.
+	reconstructed, err := trace.ReconstructStateAt(7)
+	if err != nil {
+		t.Fatalf("ReconstructStateAt(7) failed: %v", err)
+	}
+	if reconstructed.Step != 7 {
+		t.Errorf("expected step 7, got %d", reconstructed.Step)
+	}
+
+	// The snapshot at step 5 (index 1) should now be built.
+	// Find it by step number.
+	var snap5 *StateSnapshot
+	for i := range trace.Snapshots {
+		if trace.Snapshots[i].Step == 5 {
+			snap5 = &trace.Snapshots[i]
+			break
+		}
+	}
+	if snap5 == nil {
+		t.Fatal("snapshot at step 5 not found")
+	}
+	if !snap5.built {
+		t.Error("snapshot at step 5 should be built after ReconstructStateAt(7)")
+	}
+	if snap5.HostState == nil {
+		t.Error("snapshot at step 5 HostState should be populated")
+	}
+
+	// v at step 7 should be 7 (last write before step 7 inclusive is state[7].v=7).
+	if v, ok := reconstructed.HostState["v"]; !ok || v != 7 {
+		t.Errorf("expected HostState[v]=7, got %v", v)
+	}
+}

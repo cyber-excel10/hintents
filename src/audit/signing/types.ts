@@ -1,5 +1,5 @@
-// Copyright (c) 2026 dotandev
-// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) Hintents Authors.
+// SPDX-License-Identifier: Apache-2.0
 
 export type Signature = Buffer;
 export type PublicKey = string; // PEM (SPKI)

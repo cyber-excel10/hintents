@@ -97,11 +97,18 @@ func ansiWrap(text, color string) string {
 	return code + text + sgrReset
 }
 
-// Success returns a success indicator: colored checkmark if enabled, "[OK]" otherwise.
+// ContractBoundary returns a visual separator for cross-contract call transitions.
+func ContractBoundary(fromContract, toContract string) string {
+	if ColorEnabled() {
+		return sgrMagenta + sgrBold + "--- contract boundary: " + fromContract + " -> " + toContract + " ---" + sgrReset
+	}
+	return "--- contract boundary: " + fromContract + " -> " + toContract + " ---"
+}
+
 // Success returns a success indicator: colored checkmark if enabled, "[OK]" otherwise.
 func Success() string {
 	if ColorEnabled() {
-		return sgrGreen + "[OK]" + sgrReset
+		return themeColors("success") + "[OK]" + sgrReset
 	}
 	return "[OK]"
 }
@@ -109,7 +116,7 @@ func Success() string {
 // Warning returns a warning indicator: colored warning sign if enabled, "[!]" otherwise.
 func Warning() string {
 	if ColorEnabled() {
-		return sgrYellow + "[!]" + sgrReset
+		return themeColors("warning") + "[!]" + sgrReset
 	}
 	return "[!]"
 }
@@ -117,9 +124,17 @@ func Warning() string {
 // Error returns an error indicator: colored X if enabled, "[X]" otherwise.
 func Error() string {
 	if ColorEnabled() {
-		return sgrRed + "[X]" + sgrReset
+		return themeColors("error") + "[X]" + sgrReset
 	}
 	return "[X]"
+}
+
+// Info returns an info indicator with theme-aware coloring.
+func Info() string {
+	if ColorEnabled() {
+		return themeColors("info") + "[i]" + sgrReset
+	}
+	return "[i]"
 }
 
 // Symbol returns a symbol that may be styled; when colors disabled, returns plain ASCII equivalent.

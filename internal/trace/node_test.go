@@ -166,3 +166,24 @@ func TestTraceNode_Depth(t *testing.T) {
 	assert.Equal(t, 1, child1.Depth)
 	assert.Equal(t, 2, grandchild1.Depth)
 }
+
+func TestTraceNode_IsCrossContractCall(t *testing.T) {
+	parent := NewTraceNode("parent", "contract_call")
+	parent.ContractID = "CABC"
+
+	sameContract := NewTraceNode("same", "contract_call")
+	sameContract.ContractID = "CABC"
+	parent.AddChild(sameContract)
+
+	diffContract := NewTraceNode("diff", "contract_call")
+	diffContract.ContractID = "CXYZ"
+	parent.AddChild(diffContract)
+
+	noContract := NewTraceNode("none", "host_fn")
+	parent.AddChild(noContract)
+
+	assert.False(t, parent.IsCrossContractCall(), "root has no parent")
+	assert.False(t, sameContract.IsCrossContractCall(), "same contract as parent")
+	assert.True(t, diffContract.IsCrossContractCall(), "different contract from parent")
+	assert.False(t, noContract.IsCrossContractCall(), "no contract ID")
+}

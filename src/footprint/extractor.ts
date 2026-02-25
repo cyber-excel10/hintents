@@ -1,3 +1,6 @@
+// Copyright (c) Hintents Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 import { xdr } from '@stellar/stellar-sdk';
 import { XDRDecoder, TransactionMetaVersion } from '../xdr/decoder';
 import { LedgerKey, FootprintResult } from '../xdr/types';

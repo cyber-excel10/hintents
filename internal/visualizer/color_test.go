@@ -99,3 +99,31 @@ func TestForceColorEnablesColorsWhenSet(t *testing.T) {
 		t.Errorf("FORCE_COLOR=1: Colorize should emit ANSI, got plain: %q", out)
 	}
 }
+
+func TestContractBoundaryPlainText(t *testing.T) {
+	os.Setenv("NO_COLOR", "1")
+	defer os.Unsetenv("NO_COLOR")
+
+	out := ContractBoundary("CABC", "CXYZ")
+	expected := "--- contract boundary: CABC -> CXYZ ---"
+	if out != expected {
+		t.Errorf("ContractBoundary() = %q, want %q", out, expected)
+	}
+	if strings.Contains(out, "\033") {
+		t.Errorf("ContractBoundary should not contain ANSI when NO_COLOR set, got: %q", out)
+	}
+}
+
+func TestContractBoundaryWithColor(t *testing.T) {
+	os.Unsetenv("NO_COLOR")
+	os.Setenv("FORCE_COLOR", "1")
+	defer os.Unsetenv("FORCE_COLOR")
+
+	out := ContractBoundary("CABC", "CXYZ")
+	if !strings.Contains(out, "CABC") || !strings.Contains(out, "CXYZ") {
+		t.Errorf("ContractBoundary should contain both contract IDs, got: %q", out)
+	}
+	if !strings.Contains(out, "\033") {
+		t.Errorf("ContractBoundary should contain ANSI codes when colors enabled, got: %q", out)
+	}
+}

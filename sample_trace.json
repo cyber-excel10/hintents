@@ -36,7 +36,9 @@
       "memory": {
         "recipient": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
         "temp_amount": 500000
-      }
+      },
+      "cpu_delta": 125000,
+      "memory_delta": 2048
     },
     {
       "step": 2,
@@ -57,7 +59,9 @@
         "amount": 100000,
         "from_balance": 500000,
         "to_balance": 100000
-      }
+      },
+      "cpu_delta": 180000,
+      "memory_delta": 3072
     },
     {
       "step": 3,
@@ -72,7 +76,9 @@
       "memory": {
         "query_account": "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
         "result": 400000
-      }
+      },
+      "cpu_delta": 75000,
+      "memory_delta": 1024
     },
     {
       "step": 4,
@@ -94,7 +100,9 @@
         "attempted_amount": 500000,
         "available_balance": 400000,
         "error_triggered": true
-      }
+      },
+      "cpu_delta": 220000,
+      "memory_delta": 4096
     },
     {
       "step": 5,

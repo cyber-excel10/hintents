@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/dotandev/hintents/internal/errors"
 )
 
 // AttestationCertificate represents a single X.509 certificate in the
@@ -87,7 +89,7 @@ func Generate(txHash string, envelopeXdr, resultMetaXdr string, events, logs []s
 
 	payloadBytes, err := json.Marshal(hi)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal payload: %w", err)
+		return nil, errors.WrapMarshalFailed(err)
 	}
 
 	// 3. Calculate Trace Hash (SHA256)
@@ -97,11 +99,11 @@ func Generate(txHash string, envelopeXdr, resultMetaXdr string, events, logs []s
 	// 4. Parse Private Key
 	privKeyBytes, err := hex.DecodeString(privateKeyHex)
 	if err != nil {
-		return nil, fmt.Errorf("invalid private key hex: %w", err)
+		return nil, errors.WrapValidationError(fmt.Sprintf("invalid private key hex: %v", err))
 	}
 
 	if len(privKeyBytes) != ed25519.PrivateKeySize && len(privKeyBytes) != ed25519.SeedSize {
-		return nil, fmt.Errorf("invalid private key length: %d", len(privKeyBytes))
+		return nil, errors.WrapValidationError(fmt.Sprintf("invalid private key length: %d", len(privKeyBytes)))
 	}
 
 	var privateKey ed25519.PrivateKey

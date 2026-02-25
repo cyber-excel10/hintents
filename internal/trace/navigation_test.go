@@ -278,3 +278,91 @@ func TestExecutionTrace_StateReconstruction(t *testing.T) {
 		t.Errorf("Expected var3=true at step 4, got %v", reconstructed.Memory["var3"])
 	}
 }
+
+func TestExecutionTrace_FilteredNavigation(t *testing.T) {
+	trace := NewExecutionTrace("filter-test", 10)
+	states := []ExecutionState{
+		{Operation: "contract_call", ContractID: "C1", Function: "transfer"},
+		{Operation: "host_fn", Function: "get_ledger_entry"},
+		{Operation: "contract_call", ContractID: "C2", Function: "swap"},
+		{Operation: "error", Error: "Wasm Trap: unreachable"},
+		{Operation: "call", Function: "require_auth"},
+		{Operation: "contract_call", ContractID: "C1", Function: "balance"},
+	}
+	for _, s := range states {
+		trace.AddState(s)
+	}
+
+	if n := trace.FilteredStepCount(EventTypeContractCall); n != 3 {
+		t.Errorf("FilteredStepCount(contract_call) = %d, want 3", n)
+	}
+	if n := trace.FilteredStepCount(EventTypeTrap); n != 1 {
+		t.Errorf("FilteredStepCount(trap) = %d, want 1", n)
+	}
+	if n := trace.FilteredStepCount(EventTypeAuth); n != 1 {
+		t.Errorf("FilteredStepCount(auth) = %d, want 1", n)
+	}
+	if n := trace.FilteredStepCount(EventTypeHostFunction); n != 1 {
+		t.Errorf("FilteredStepCount(host_function) = %d, want 1", n)
+	}
+
+	// Start at 0 (contract_call). Filtered forward with contract_call should go to step 2, then 5
+	state, err := trace.FilteredStepForward(EventTypeContractCall)
+	if err != nil {
+		t.Fatalf("FilteredStepForward(contract_call): %v", err)
+	}
+	if state.Step != 2 {
+		t.Errorf("FilteredStepForward first: step = %d, want 2", state.Step)
+	}
+	state, err = trace.FilteredStepForward(EventTypeContractCall)
+	if err != nil {
+		t.Fatalf("FilteredStepForward(contract_call) second: %v", err)
+	}
+	if state.Step != 5 {
+		t.Errorf("FilteredStepForward second: step = %d, want 5", state.Step)
+	}
+	_, err = trace.FilteredStepForward(EventTypeContractCall)
+	if err == nil {
+		t.Error("FilteredStepForward at end should return error")
+	}
+
+	// Backward from 5: should go to 2, then 0
+	state, err = trace.FilteredStepBackward(EventTypeContractCall)
+	if err != nil {
+		t.Fatalf("FilteredStepBackward: %v", err)
+	}
+	if state.Step != 2 {
+		t.Errorf("FilteredStepBackward first: step = %d, want 2", state.Step)
+	}
+	state, err = trace.FilteredStepBackward(EventTypeContractCall)
+	if err != nil {
+		t.Fatalf("FilteredStepBackward second: %v", err)
+	}
+	if state.Step != 0 {
+		t.Errorf("FilteredStepBackward second: step = %d, want 0", state.Step)
+	}
+	_, err = trace.FilteredStepBackward(EventTypeContractCall)
+	if err == nil {
+		t.Error("FilteredStepBackward at start should return error")
+	}
+
+	// Empty filter: same as normal step
+	trace.CurrentStep = 0
+	state, err = trace.FilteredStepForward("")
+	if err != nil {
+		t.Fatalf("FilteredStepForward(\"\") failed: %v", err)
+	}
+	if state.Step != 1 {
+		t.Errorf("FilteredStepForward(empty) = step %d, want 1", state.Step)
+	}
+
+	// FilteredCurrentIndex
+	trace.CurrentStep = 2
+	if idx := trace.FilteredCurrentIndex(EventTypeContractCall); idx != 2 {
+		t.Errorf("FilteredCurrentIndex at step 2 = %d, want 2", idx)
+	}
+	trace.CurrentStep = 1
+	if idx := trace.FilteredCurrentIndex(EventTypeContractCall); idx != 0 {
+		t.Errorf("FilteredCurrentIndex at non-matching step = %d, want 0", idx)
+	}
+}

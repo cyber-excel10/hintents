@@ -9,6 +9,8 @@ linters:
     - errcheck
     - staticcheck
     - unused
+    - govet
+    - ineffassign
 
 linters-settings:
   gocyclo:
@@ -30,7 +32,3 @@ issues:
     - linters:
         - errcheck
       text: "Error return value of `.*(Close|Setenv|Unsetenv).*` is not checked"
-    # Exclude unused for parser.go (kept for future use)
-    - path: internal/rpc/parser\.go
-      linters:
-        - unused

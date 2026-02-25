@@ -6,14 +6,14 @@ import stringify from 'fast-json-stable-stringify';
 import type { AuditSigner, HardwareAttestation } from './signing/types';
 
 // Define the structure of the execution trace
-interface ExecutionTrace {
+export interface ExecutionTrace {
   input: Record<string, any>;
   state: Record<string, any>;
   events: any[];
   timestamp: string; // ISO string
 }
 
-interface SignedAuditLog {
+export interface SignedAuditLog {
   trace: ExecutionTrace;
   hash: string;
   signature: string;

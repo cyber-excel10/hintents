@@ -5,16 +5,18 @@ package trace
 
 // TraceNode represents a single node in the execution trace tree
 type TraceNode struct {
-	ID         string       // Unique identifier for this node
-	Type       string       // Type of event: "contract_call", "host_fn", "error", "event"
-	ContractID string       // Contract ID if applicable
-	Function   string       // Function name being called
-	Error      string       // Error message if this is an error node
-	EventData  string       // Event data/payload
-	Depth      int          // Depth in the call tree (0 = root)
-	Children   []*TraceNode // Child nodes in the execution tree
-	Parent     *TraceNode   // Parent node (nil for root)
-	Expanded   bool         // Whether this node is expanded in the UI
+	ID            string       // Unique identifier for this node
+	Type          string       // Type of event: "contract_call", "host_fn", "error", "event"
+	ContractID    string       // Contract ID if applicable
+	Function      string       // Function name being called
+	Error         string       // Error message if this is an error node
+	EventData     string       // Event data/payload
+	Depth         int          // Depth in the call tree (0 = root)
+	Children      []*TraceNode // Child nodes in the execution tree
+	Parent        *TraceNode   // Parent node (nil for root)
+	Expanded      bool         // Whether this node is expanded in the UI
+	CPUDelta      *uint64      // CPU instructions consumed by this node (nil if not tracked)
+	MemoryDelta   *uint64      // Memory bytes consumed by this node (nil if not tracked)
 }
 
 // NewTraceNode creates a new trace node
@@ -83,4 +85,13 @@ func (n *TraceNode) CollapseAll() {
 	for _, child := range n.Children {
 		child.CollapseAll()
 	}
+}
+
+// IsCrossContractCall returns true if this node represents a call to a different
+// contract than its parent.
+func (n *TraceNode) IsCrossContractCall() bool {
+	if n.Parent == nil || n.ContractID == "" || n.Parent.ContractID == "" {
+		return false
+	}
+	return n.ContractID != n.Parent.ContractID
 }

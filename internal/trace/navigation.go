@@ -14,6 +14,7 @@ type ExecutionState struct {
 	Step        int                    `json:"step"`
 	Timestamp   time.Time              `json:"timestamp"`
 	Operation   string                 `json:"operation"`
+	EventType   string                 `json:"event_type,omitempty"` // trap, contract_call, host_function, auth, or empty for inferred
 	ContractID  string                 `json:"contract_id,omitempty"`
 	Function    string                 `json:"function,omitempty"`
 	Arguments   []interface{}          `json:"arguments,omitempty"`
@@ -275,4 +276,70 @@ func (t *ExecutionTrace) getCurrentCallStack() []string {
 		}
 	}
 	return stack
+}
+
+// FilteredStepForward moves to the next step that matches the given event type filter.
+// If filter is empty, behaves like StepForward. Returns the new state or error.
+func (t *ExecutionTrace) FilteredStepForward(filter string) (*ExecutionState, error) {
+	if filter == "" {
+		return t.StepForward()
+	}
+	for i := t.CurrentStep + 1; i < len(t.States); i++ {
+		if t.StepMatchesFilter(i, filter) {
+			t.CurrentStep = i
+			return &t.States[i], nil
+		}
+	}
+	return nil, fmt.Errorf("no more steps matching filter %q", filter)
+}
+
+// FilteredStepBackward moves to the previous step that matches the given event type filter.
+// If filter is empty, behaves like StepBackward. Returns the new state or error.
+func (t *ExecutionTrace) FilteredStepBackward(filter string) (*ExecutionState, error) {
+	if filter == "" {
+		return t.StepBackward()
+	}
+	for i := t.CurrentStep - 1; i >= 0; i-- {
+		if t.StepMatchesFilter(i, filter) {
+			t.CurrentStep = i
+			return &t.States[i], nil
+		}
+	}
+	return nil, fmt.Errorf("no earlier steps matching filter %q", filter)
+}
+
+// FilteredStepCount returns the number of steps that match the given filter.
+// Empty filter returns len(t.States).
+func (t *ExecutionTrace) FilteredStepCount(filter string) int {
+	if filter == "" {
+		return len(t.States)
+	}
+	n := 0
+	for i := 0; i < len(t.States); i++ {
+		if t.StepMatchesFilter(i, filter) {
+			n++
+		}
+	}
+	return n
+}
+
+// FilteredCurrentIndex returns the 1-based index of the current step among steps matching the filter.
+// Returns 0 if current step does not match the filter. Empty filter uses natural step index.
+func (t *ExecutionTrace) FilteredCurrentIndex(filter string) int {
+	if t.CurrentStep < 0 || t.CurrentStep >= len(t.States) {
+		return 0
+	}
+	if filter == "" {
+		return t.CurrentStep + 1
+	}
+	if !t.StepMatchesFilter(t.CurrentStep, filter) {
+		return 0
+	}
+	idx := 0
+	for i := 0; i <= t.CurrentStep; i++ {
+		if t.StepMatchesFilter(i, filter) {
+			idx++
+		}
+	}
+	return idx
 }

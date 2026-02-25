@@ -67,6 +67,9 @@ export class Pkcs11Ed25519Signer implements AuditSigner {
   }
 
   async sign(payload: Uint8Array): Promise<Signature> {
+    // Guard against HSM abuse during loops
+    await HsmRateLimiter.checkAndRecordCall();
+
     // Minimal skeleton that surfaces errors clearly.
     // Implementing full PKCS#11 key discovery + Ed25519 mechanisms depends on token capabilities.
     // We keep this as a real provider module but require ERST_PKCS11_PUBLIC_KEY_PEM for verification.
@@ -79,19 +82,80 @@ export class Pkcs11Ed25519Signer implements AuditSigner {
 
     const lib = new pkcs11.PKCS11();
     try {
-      lib.load(this.cfg.module);
-      lib.C_Initialize();
+      try {
+        lib.load(this.cfg.module);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(`Failed to load PKCS#11 module at '${this.cfg.module}': ${msg}. Check that the library exists and is accessible.`);
+      }
+
+      try {
+        lib.C_Initialize();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const lowerMsg = msg.toLowerCase();
+        
+        let context = '';
+        if (lowerMsg.includes('cryptoki already initialized') || lowerMsg.includes('0x191')) {
+          context = 'Library already initialized (CKR_CRYPTOKI_ALREADY_INITIALIZED)';
+        } else if (lowerMsg.includes('library lock') || lowerMsg.includes('0x30')) {
+          context = 'Library lock error (CKR_CANT_LOCK). The PKCS#11 library may be in use by another process.';
+        } else if (lowerMsg.includes('token not present') || lowerMsg.includes('0xe0')) {
+          context = 'Token not present (CKR_TOKEN_NOT_PRESENT). Ensure the HSM/token is connected.';
+        } else if (lowerMsg.includes('device error') || lowerMsg.includes('0x30')) {
+          context = 'Device error (CKR_DEVICE_ERROR). Check HSM/token hardware connection.';
+        } else if (lowerMsg.includes('general error') || lowerMsg.includes('0x5')) {
+          context = 'General error (CKR_GENERAL_ERROR). The PKCS#11 module failed to initialize.';
+        } else {
+          context = 'PKCS#11 initialization failed';
+        }
+        
+        throw new Error(`${context}: ${msg}`);
+      }
 
       const slots = lib.C_GetSlotList(true);
-      if (!slots || slots.length === 0) throw new Error('no PKCS#11 slots with tokens found');
+      if (!slots || slots.length === 0) {
+        throw new Error('No PKCS#11 slots with tokens found. Ensure the HSM/token is connected and recognized by the PKCS#11 module.');
+      }
 
       // Choose slot
       const slot = this.cfg.slot ? slots[Number(this.cfg.slot)] : slots[0];
-      if (slot === undefined) throw new Error('configured ERST_PKCS11_SLOT did not resolve to a valid slot');
+      if (slot === undefined) {
+        throw new Error(`Configured ERST_PKCS11_SLOT (${this.cfg.slot}) did not resolve to a valid slot. Available slots: ${slots.length}`);
+      }
 
-      const session = lib.C_OpenSession(slot, pkcs11.CKF_SERIAL_SESSION | pkcs11.CKF_RW_SESSION);
+      let session;
       try {
-        lib.C_Login(session, 1 /* CKU_USER */, this.cfg.pin);
+        session = lib.C_OpenSession(slot, pkcs11.CKF_SERIAL_SESSION | pkcs11.CKF_RW_SESSION);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(`Failed to open session on slot ${slot}: ${msg}. The token may be locked or unavailable.`);
+      }
+
+      try {
+        try {
+          lib.C_Login(session, 1 /* CKU_USER */, this.cfg.pin);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          const lowerMsg = msg.toLowerCase();
+          
+          let context = '';
+          if (lowerMsg.includes('pin incorrect') || lowerMsg.includes('0xa0')) {
+            context = 'Wrong PIN (CKR_PIN_INCORRECT)';
+          } else if (lowerMsg.includes('pin locked') || lowerMsg.includes('0xa4')) {
+            context = 'PIN locked (CKR_PIN_LOCKED). The token may be locked due to too many failed attempts.';
+          } else if (lowerMsg.includes('user already logged in') || lowerMsg.includes('0x100')) {
+            context = 'User already logged in (CKR_USER_ALREADY_LOGGED_IN)';
+          } else if (lowerMsg.includes('session closed') || lowerMsg.includes('0x90')) {
+            context = 'Session closed (CKR_SESSION_CLOSED)';
+          } else if (lowerMsg.includes('token not present') || lowerMsg.includes('0xe0')) {
+            context = 'Token not present (CKR_TOKEN_NOT_PRESENT)';
+          } else {
+            context = 'Login failed';
+          }
+          
+          throw new Error(`${context}: ${msg}`);
+        }
 
         // Locate private key by label or id
         const template: any[] = [{ type: pkcs11.CKA_CLASS, value: pkcs11.CKO_PRIVATE_KEY }];

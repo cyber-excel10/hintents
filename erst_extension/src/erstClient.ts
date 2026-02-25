@@ -1,3 +1,6 @@
+// Copyright (c) Hintents Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 import * as rpc from 'vscode-jsonrpc/node';
 import * as net from 'net';
 

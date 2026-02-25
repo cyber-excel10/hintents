@@ -12,7 +12,8 @@ pub struct SourceMapper {
 pub struct SourceLocation {
     pub file: String,
     pub line: u32,
-    pub column: Option<u32>,
+    pub column: u32,
+    pub column_end: Option<u32>,
 }
 
 impl SourceMapper {
@@ -41,7 +42,8 @@ impl SourceMapper {
         Some(SourceLocation {
             file: "token.rs".to_string(),
             line: 45,
-            column: Some(12),
+            column: 12,
+            column_end: Some(20),
         })
     }
 
@@ -79,7 +81,8 @@ mod tests {
         let location = SourceLocation {
             file: "test.rs".to_string(),
             line: 42,
-            column: Some(10),
+            column: 10,
+            column_end: Some(15),
         };
 
         let json = serde_json::to_string(&location).unwrap();

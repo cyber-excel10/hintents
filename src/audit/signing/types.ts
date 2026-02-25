@@ -1,3 +1,6 @@
+// Copyright (c) Hintents Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 export type Signature = Buffer;
 export type PublicKey = string; // PEM (SPKI)
 
